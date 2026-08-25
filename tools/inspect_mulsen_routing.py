@@ -165,6 +165,10 @@ class RoutingCollector:
                 context_logits = context_logits * module.context_expert_mask.to(
                     context_logits.dtype
                 )
+                if module.context_alpha is not None:
+                    context_logits = context_logits * module.context_alpha.to(
+                        dtype=context_logits.dtype
+                    )
                 context_logits = context_logits.reshape_as(base).to(base.dtype)
             self.all_tokens.update(base, context_logits)
             self.class_tokens.update(
@@ -181,12 +185,18 @@ class RoutingCollector:
             if hasattr(self.module, "context_gate")
             else 0.0
         )
+        context_alpha = self.module.context_alpha
         return {
             "adapter_index": layer_index,
             "transformer_block_index": block_index,
             "base_gate_weight_l2": base_norm,
             "context_gate_weight_l2": context_norm,
             "context_to_base_weight_l2_ratio": context_norm / max(base_norm, 1e-12),
+            "context_alpha": (
+                float(context_alpha.detach().float().cpu())
+                if context_alpha is not None
+                else None
+            ),
             "all_tokens": self.all_tokens.summary(),
             "class_tokens": self.class_tokens.summary(),
             "patch_tokens": self.patch_tokens.summary(),

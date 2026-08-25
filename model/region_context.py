@@ -38,6 +38,7 @@ class RegionContextOutput:
     thermal_region_features: torch.Tensor
     thermal_attention: torch.Tensor
     pool: RegionPoolOutput
+    global_context: Optional[torch.Tensor] = None
 
 
 def _validate_grid_size(grid_size: Tuple[int, int]) -> Tuple[int, int]:
@@ -200,6 +201,38 @@ def pool_patch_regions(
     )
 
 
+def count_weighted_global_context(
+    region_context: torch.Tensor,
+    region_counts: torch.Tensor,
+    valid_regions: torch.Tensor,
+) -> torch.Tensor:
+    """Pool valid region contexts using their patch counts as weights.
+
+    This is deliberately separate from anomaly labels or masks: ``region_counts``
+    comes only from RGB patch membership.  Padded regions are excluded by
+    ``valid_regions`` and the denominator is clamped for a well-defined zero
+    output on an empty input.
+    """
+
+    if region_context.ndim != 3:
+        raise ValueError("region_context must have shape [B,R,D]")
+    if region_counts.shape != region_context.shape[:2]:
+        raise ValueError("region_counts must have shape [B,R]")
+    if valid_regions.shape != region_context.shape[:2]:
+        raise ValueError("valid_regions must have shape [B,R]")
+    if region_counts.device != region_context.device:
+        raise ValueError("region_counts and region_context must share a device")
+    if valid_regions.device != region_context.device:
+        raise ValueError("valid_regions and region_context must share a device")
+    if torch.is_floating_point(region_counts) or region_counts.dtype == torch.bool:
+        raise TypeError("region_counts must contain integer patch counts")
+
+    weights = region_counts.to(dtype=region_context.dtype)
+    weights = weights * valid_regions.to(dtype=region_context.dtype)
+    denominator = weights.sum(dim=1, keepdim=True).clamp_min(1.0)
+    return (region_context * weights.unsqueeze(-1)).sum(dim=1) / denominator
+
+
 class RegionThermalAttention(nn.Module):
     """Let RGB regions attend to all thermal patches with an optional soft prior."""
 
@@ -321,11 +354,13 @@ class RegionContextEncoder(nn.Module):
         coordinate_bias_strength: float = 1.0,
         coordinate_bias_sigma: float = 0.75,
         dropout: float = 0.0,
+        use_global_context: bool = False,
     ) -> None:
         super().__init__()
         if context_dim <= 0:
             raise ValueError("context_dim must be positive")
         self.context_dim = int(context_dim)
+        self.use_global_context = bool(use_global_context)
         self.rgb_norm = nn.LayerNorm(rgb_dim)
         self.rgb_projection = nn.Linear(rgb_dim, self.context_dim, bias=False)
         self.thermal_attention = None
@@ -346,6 +381,16 @@ class RegionContextEncoder(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(self.context_dim, self.context_dim),
         )
+        if self.use_global_context:
+            # Small per-patch projection: retain local region context while
+            # injecting the count-weighted image context.  This is only
+            # constructed for the explicit v1.1 path so v1 checkpoints retain
+            # their original parameter set and behavior.
+            self.patch_context_projection = nn.Sequential(
+                nn.Linear(self.context_dim * 2, self.context_dim),
+                nn.GELU(),
+                nn.Linear(self.context_dim, self.context_dim),
+            )
 
     def forward(
         self,
@@ -399,12 +444,24 @@ class RegionContextEncoder(nn.Module):
             -1, -1, self.context_dim
         )
         patch_context = torch.gather(region_context, 1, gather_index)
+        global_context = None
+        if self.use_global_context:
+            global_context = count_weighted_global_context(
+                region_context,
+                pool.region_counts,
+                pool.valid_regions,
+            )
+            patch_global = global_context.unsqueeze(1).expand_as(patch_context)
+            patch_context = self.patch_context_projection(
+                torch.cat((patch_context, patch_global), dim=-1)
+            )
         return RegionContextOutput(
             region_context=region_context,
             patch_context=patch_context,
             thermal_region_features=projected_thermal,
             thermal_attention=attention,
             pool=pool,
+            global_context=global_context,
         )
 
 
@@ -416,4 +473,5 @@ __all__ = [
     "identity_patch_regions",
     "pixel_regions_to_patch_regions",
     "pool_patch_regions",
+    "count_weighted_global_context",
 ]

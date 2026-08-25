@@ -111,6 +111,14 @@ def parse_args():
     parser.add_argument("--region_coordinate_bias", type=float, default=1.0)
     parser.add_argument("--region_coordinate_sigma", type=float, default=0.75)
     parser.add_argument("--num_context_experts", type=int)
+    parser.add_argument(
+        "--use_global_context",
+        action="store_true",
+        help=(
+            "enable the explicitly gated v1.1 count-weighted global region "
+            "context for patch routing (variants C/D only)"
+        ),
+    )
     parser.add_argument("--modality_dropout", type=float, default=0.2)
     parser.add_argument("--align_loss_lambda", type=float, default=0.0)
     parser.add_argument("--adapter_norm_floor", type=float, default=1.0)
@@ -170,6 +178,10 @@ def validate_args(args) -> Tuple[bool, bool]:
         raise ValueError("use_segment_paa requires standard PAA to be enabled")
     if args.use_segment_paa and not use_region_routing:
         raise ValueError("use_segment_paa is only defined for variants C/D")
+    if args.use_global_context and not use_region_routing:
+        raise ValueError(
+            "use_global_context is only defined for variants C/D"
+        )
     if args.num_context_experts is not None and not (
         0 <= args.num_context_experts <= args.moe_num_experts
     ):
@@ -224,6 +236,7 @@ def build_experiment_config(
         "region_coordinate_bias": args.region_coordinate_bias,
         "region_coordinate_sigma": args.region_coordinate_sigma,
         "num_context_experts": args.num_context_experts,
+        "use_global_context": args.use_global_context,
         "modality_dropout": args.modality_dropout,
         "stable_adapter_norm": args.stable_adapter_norm,
         "adapter_norm_floor": args.adapter_norm_floor,
@@ -468,6 +481,7 @@ def main() -> None:
         region_coordinate_bias=args.region_coordinate_bias,
         region_coordinate_sigma=args.region_coordinate_sigma,
         num_context_experts=args.num_context_experts,
+        use_global_context=args.use_global_context,
         modality_dropout=args.modality_dropout,
         stable_adapter_norm=args.stable_adapter_norm,
         adapter_norm_floor=args.adapter_norm_floor,

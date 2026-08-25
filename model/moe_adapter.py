@@ -157,13 +157,19 @@ class BaseIndependentMoE(nn.Module):
         router_context_dim: Optional[int] = None,
         num_context_experts: Optional[int] = None,
         base_router_init: str = "zero",
+        use_context_scale: bool = False,
     ):
         super().__init__()
         self.config = config
         self.d_model = d_model
         if base_router_init not in {"zero", "normal"}:
             raise ValueError("base_router_init must be 'zero' or 'normal'")
+        if use_context_scale and router_context_dim is None:
+            raise ValueError(
+                "use_context_scale requires router_context_dim"
+            )
         self.base_router_init = base_router_init
+        self.use_context_scale = bool(use_context_scale)
         
         self.gate = nn.Linear(d_model, config.num_experts_, bias=False)
         
@@ -197,6 +203,13 @@ class BaseIndependentMoE(nn.Module):
             context_mask = torch.zeros(config.num_experts_, dtype=torch.float32)
             context_mask[:num_context_experts] = 1.0
             self.register_buffer("context_expert_mask", context_mask)
+            if self.use_context_scale:
+                # sigmoid(logit(0.2)) = 0.2.  Keeping this as one parameter
+                # per MoE layer makes the v1.1 residual contribution bounded,
+                # checkpointed, and directly inspectable.
+                self.context_scale_logit = nn.Parameter(
+                    torch.tensor(math.log(0.2 / 0.8), dtype=torch.float32)
+                )
         
         self.jitter_noise = getattr(config, "jitter_noise_", 0.0)
         self.init_custom_weights()
@@ -276,8 +289,20 @@ class BaseIndependentMoE(nn.Module):
             context_flat = context_flat.to(dtype=self.context_gate.weight.dtype)
             residual = self.context_gate(context_flat)
             residual = residual * self.context_expert_mask.to(residual.dtype)
+            if hasattr(self, "context_scale_logit"):
+                residual = residual * torch.sigmoid(
+                    self.context_scale_logit
+                ).to(dtype=residual.dtype)
             router_logits = router_logits + residual.to(router_logits.dtype)
         return router_logits
+
+    @property
+    def context_alpha(self) -> Optional[torch.Tensor]:
+        """Current bounded v1.1 context-residual scale, if enabled."""
+
+        if not hasattr(self, "context_scale_logit"):
+            return None
+        return torch.sigmoid(self.context_scale_logit)
         
     def _vit_forward(self, expert_mask: torch.Tensor, hidden_states: torch.Tensor) -> Dict[int, torch.Tensor]:
         expert_outputs_dict = {}
@@ -392,6 +417,7 @@ class MoECLIP(nn.Module):
         modality_dropout: float = 0.2,
         stable_adapter_norm: bool = False,
         adapter_norm_floor: float = 1.0,
+        use_global_context: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -414,6 +440,11 @@ class MoECLIP(nn.Module):
         self.use_thermal = bool(use_thermal)
         self.use_region_routing = bool(use_region_routing)
         self.use_context_routing = self.use_thermal or self.use_region_routing
+        self.use_global_context = bool(use_global_context)
+        if self.use_global_context and not self.use_context_routing:
+            raise ValueError(
+                "use_global_context requires thermal or region-conditioned routing"
+            )
         if use_segment_paa and not use_paa:
             raise ValueError("use_segment_paa requires use_paa=True")
         if use_segment_paa and not self.use_region_routing:
@@ -489,6 +520,7 @@ class MoECLIP(nn.Module):
                 ),
                 num_context_experts=num_context_experts,
                 base_router_init=router_init,
+                use_context_scale=self.use_global_context,
             )
             for _ in self.moe_layers
         ])
@@ -513,6 +545,7 @@ class MoECLIP(nn.Module):
                     num_heads=region_attention_heads,
                     coordinate_bias_strength=region_coordinate_bias,
                     coordinate_bias_sigma=region_coordinate_sigma,
+                    use_global_context=self.use_global_context,
                 )
                 for _ in self.moe_layers
             )

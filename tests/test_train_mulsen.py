@@ -28,6 +28,7 @@ def _args(**overrides):
         "moe_num_experts": 4,
         "moe_top_k": 2,
         "num_context_experts": None,
+        "use_global_context": False,
         "amp_init_scale": 1024.0,
         "adapter_norm_floor": 1.0,
         "use_paa": True,
@@ -78,6 +79,12 @@ class TrainMulSenTest(unittest.TestCase):
             validate_args(_args(adapter_norm_floor=0.0))
         with self.assertRaisesRegex(ValueError, "variants C/D"):
             validate_args(_args(variant="B", use_segment_paa=True))
+        with self.assertRaisesRegex(ValueError, "variants C/D"):
+            validate_args(_args(variant="B", use_global_context=True))
+        self.assertEqual(
+            validate_args(_args(variant="C", use_global_context=True)),
+            (False, True),
+        )
         with self.assertRaisesRegex(ValueError, "standard PAA"):
             validate_args(_args(use_segment_paa=True, use_paa=False))
 
