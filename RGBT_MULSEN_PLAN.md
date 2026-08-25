@@ -1,0 +1,270 @@
+# Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
+
+Status: dataset audit and standalone loader complete; model and training integration not started.
+
+Last updated: 2026-08-25
+
+## Research question
+
+Can RGB-region context and thermal evidence improve MoECLIP expert selection while
+retaining RGB CLIP patch tokens, patch-level LoRA adaptation, and the original
+normal/anomalous text-scoring pathway?
+
+## FACTS
+
+### Repository baseline
+
+- Local `main` is synchronized with `origin/main` at commit `0e4e726`.
+- The released-code reproduction and its paper/code differences are recorded in
+  `RESULTS_SUMMARY.md`. In particular, the released RGB training path keeps the
+  model in evaluation mode, so ETF, router balance loss, and LoRA dropout were not
+  all active as described by the paper. Published reproduction numbers remain
+  released-code baseline evidence and will not be relabeled as corrected runs.
+- The exploratory MoE-TwinCLIP implementation is not the basis of the new model.
+  Its loader, thermal fusion, modality dropout, router grouping, checkpointing,
+  and evaluation paths require replacement. Original RGB checkpoints/results are
+  retained.
+
+### Official dataset and audit
+
+- Official project: <https://github.com/MapleBoat/MulSen-AD>
+- Official dataset host: <https://huggingface.co/datasets/orgjy314159/MulSen_AD>
+- Audited archive: `MulSen_AD.zip`, 8,973,642,033 bytes.
+- SHA-256:
+  `455b5ea1732a8847c47433d9787eaa7d8f9b865b7967b0081b723baff4a8baca`.
+- Extracted structure contains 15 categories, 1,391 paired normal training
+  samples, and 644 paired test samples: 150 `good` plus 494 files in anomaly
+  folders. All 2,035 RGB/IR pairs match by category, split, anomaly type, and
+  filename.
+- The release has 87 label CSVs. Labels are modality-specific columns named
+  `RGB`, `infrared`, and `pointcloud`.
+- Across the 494 anomaly-folder samples:
+  - 282 are visible in both RGB and IR;
+  - 78 are RGB-only;
+  - 106 are IR-only;
+  - 25 are point-cloud-only;
+  - 3 have zero in all three CSV label columns.
+- The three all-zero anomaly-folder records are
+  `toothbrush/foreign_body/0`, `zipper/hole/1`, and `zipper/scratch/3`.
+- Therefore, the primary RGB+IR image label is `RGB OR infrared`, not the anomaly
+  folder name and not the official three-modality OR label.
+- Modality-positive labels reconcile with 360 RGB masks and 388 IR masks.
+  `nut/RGB/GT/color/8.png` is one orphan mask with no image or CSV row; it is
+  warned about and ignored.
+- RGB and IR masks are distinct, modality-specific annotations. They must never
+  be silently unioned or assumed identical.
+
+### Actual image storage
+
+- All RGB images decode to `uint8`, 1280x960. The `.png`-named files contain 411
+  BMP payloads and 1,624 PNG payloads; decoded modes are RGB or RGBA. Sampled
+  RGBA alpha channels are opaque.
+- All IR images decode to `uint8`, 640x480 and PIL mode RGB. The `.png`-named
+  files contain 1,236 BMP payloads and 799 PNG payloads. This is not distributed
+  raw 16-bit thermography.
+- Full IR pixel audit:
+  - decoded range: 0--255;
+  - 2,005/2,035 images have exactly equal RGB channels;
+  - 30 have sparse channel discrepancies;
+  - discrepant pixels are 148,389/625,152,000 = 0.000237365;
+  - maximum per-pixel channel spread is 20.
+- Loader policy: validate the grayscale-like encoding, average decoded RGB
+  channels symmetrically, divide by 255, and never perform per-image min/max
+  normalization. Dataset mean/std, if used, must be estimated only from the
+  final seen-category normal training images.
+
+### Spatial correspondence
+
+- The paper describes separate sequential capture: the IR camera is placed at
+  random horizontal angles and the RGB pose/height is manually adjusted using
+  the IR image, scale, robot, and software grid. It does not provide calibrated
+  intrinsics, extrinsics, or a registration transform.
+- A deterministic 16-pair audit covered all 15 categories, normal/anomalous
+  examples, and RGB/IR label disagreements. RGB was resized to the native IR
+  grid only for diagnosis.
+- Best bounded edge-shift statistics were mean absolute `dx=17.06` and
+  `dy=15.25` IR pixels; 12/16 pairs exceeded one 37x37 CLIP-grid patch in at
+  least one dimension. Contact sheets also show sample-dependent scale and
+  rotation differences.
+- Conclusion: naive same-index RGB/IR patch correspondence is not scientifically
+  justified. Common resizing is a tensor-shape operation, not registration.
+
+## HYPOTHESES
+
+### Core hypothesis
+
+A patch should not be routed only from its RGB appearance. Its useful expert may
+depend on its RGB structural region and on thermal evidence associated with that
+region. Thermal evidence should influence expert selection without moving the
+adapted representation out of CLIP visual space.
+
+### V1 model boundary
+
+- MoECLIP LoRA experts operate exclusively on RGB CLIP tokens.
+- The lightweight thermal encoder produces conditioning features only. There is
+  no separate thermal expert output and no late RGB/IR anomaly-map averaging.
+- SLIC is computed on transformed RGB only, after shared geometry and before
+  CLIP normalization. Ground-truth masks never enter SLIC or routing.
+- Every RGB patch retains its own expert computation and CLIP-text comparison.
+- Segment-aware PAA is deferred until the region-conditioned router works and is
+  an independent ablation.
+
+### Registration-tolerant thermal context
+
+Directly selecting thermal token `i` for RGB patch `i` is rejected by the audit.
+The serious region-guided model will instead use a lightweight correspondence
+module:
+
+1. RGB SLIC region `j` pools RGB CLIP features into `z_R[j]`.
+2. `z_R[j]` queries the thermal 37x37 feature grid with cross-attention.
+3. An optional broad normalized-coordinate bias acts as a soft prior, never a
+   hard same-index constraint.
+4. The attended thermal summary is `z_T[j]`.
+5. A context MLP receives projected
+   `[z_R, z_T, z_R - z_T, z_R * z_T]`.
+6. The context produces a zero-initialized region logit residual `delta[j]`.
+7. RGB patch `i` in region `R(i)` routes with
+   `logits[i] = base_rgb_router(f_R[i]) + delta[R(i)]`.
+8. Top-2 of four learned experts transforms only `f_R[i]`.
+
+Zero initialization makes the new conditioning path start from the RGB router
+rather than perturbing the released pathway arbitrarily. Experts are not assigned
+hard-coded modality semantics in v1.
+
+### Experimental variants
+
+- **A -- RGB MoECLIP baseline:** original RGB pathway, with released-code behavior
+  reported separately from any corrected training-mode run.
+- **B -- RGB+IR patch-conditioned routing:** each RGB patch queries the thermal
+  grid without SLIC; no same-index assumption.
+- **C -- RGB-only region routing:** SLIC RGB region context conditions the router.
+- **D -- RGB+IR region-conditioned routing:** proposed region-to-thermal attention
+  and region router residual.
+- **E -- D plus segment-aware PAA:** implemented only after D works.
+
+## Proposed category-held-out ZSAD protocol
+
+This split was selected from sample counts, modality visibility, material, and
+shape metadata before any model result was available.
+
+### Final seen categories `D_s` (10)
+
+`button_cell, capsule, cube, flat_pad, light, plastic_cylinder, screen, screw,
+spring_pad, zipper`
+
+- 885 official normal training images.
+- 331 anomaly-folder samples: 307 RGB-or-IR-visible, 22 point-cloud-only, and 2
+  all-zero-label samples.
+
+### Locked final unseen categories `D_u` (5)
+
+`cotton, nut, piggy, solar_panel, toothbrush`
+
+- Their 506 official normal training images are not used.
+- Final official test has 50 `good` and 163 anomaly-folder samples.
+- Primary RGB+IR test subset: 50 normal plus 159 RGB-or-IR-visible anomalies.
+- The remaining three point-cloud-only and one all-zero-label samples are
+  excluded from the primary metric, not relabeled as normal or anomalous.
+
+### Development split inside `D_s`
+
+- Development train (8): `button_cell, capsule, cube, flat_pad, light, screen,
+  spring_pad, zipper`.
+  - 705 normal train images.
+  - 251 RGB-or-IR-visible labeled anomalies are eligible for auxiliary
+    supervision.
+  - 19 point-cloud-only and 2 all-zero-label samples are excluded from
+    supervised anomaly training.
+- Category-held-out development validation (2): `plastic_cylinder, screw`.
+  - No image from either category enters development training or normalization.
+  - Validation uses 20 normal and 56 RGB-or-IR-visible abnormal test samples.
+- Select flags/hyperparameters and a fixed epoch budget only on this development
+  split. Then refit on all ten `D_s` categories for that fixed budget and evaluate
+  once on locked `D_u`.
+- No `D_u` image, mask, modality label, or normalization statistic enters model
+  fitting or selection. Class names may be supplied to the CLIP prompt at final
+  inference, consistent with the CLIP-based zero-shot scoring pathway.
+- One primary split is a prototype, not evidence of split robustness. A later
+  multi-fold category protocol and multiple seeds are required for stronger
+  claims.
+
+## Loss and evaluation policy
+
+- Preserve segmentation, classification, ETF, and router-balance objectives,
+  but first correct and smoke-test their actual activation under module train/eval
+  state.
+- Optional cross-modal alignment is off by default in v1. If added, it must be
+  limited or weighted using seen-category normal supervision; it must not force
+  modality-exclusive anomalies to match.
+- Modality dropout is training-only and must have an explicit activation test.
+- Primary image label: `label_rgbt = label_rgb OR label_thermal`.
+- `label_any` is retained for auditing only while point cloud is absent.
+- RGB-space pixel metrics use RGB masks on RGB-visible anomalies plus normal
+  samples. IR masks are preserved, but an RGB patch map is not evaluated against
+  an IR mask until a defensible correspondence/transport method exists.
+- Pixel maps remain RGB patch-derived. The wording is: the extension "preserves
+  the CLIP-based zero-shot scoring pathway," not that it guarantees zero-shot
+  generalization.
+
+## Implementation status
+
+- `tools/inspect_mulsen_alignment.py`: read-only pairing, encoding, label/mask,
+  and edge-overlay audit.
+- `dataset/mulsen_ad.py`: standalone strict RGB+IR loader with separate labels,
+  separate masks, synchronized optional geometry, and RGB-only SLIC.
+- `tests/test_mulsen_ad.py`: synthetic loader tests.
+- The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
+  command-line interface are unchanged at this stage.
+
+## Reproducible smoke commands
+
+```powershell
+conda activate moeclip
+$Py = (Get-Command python).Source
+
+& $Py -m unittest tests.test_mulsen_ad tools.test_inspect_mulsen_alignment -v
+
+& $Py tools\inspect_mulsen_alignment.py `
+  --data-root "data\MulSenAD_official\MulSen_AD" `
+  --output-dir "data\mulsen_alignment_audit" `
+  --sample-count 16 `
+  --seed 111 `
+  --max-shift 32
+```
+
+No training or evaluation command is defined yet.
+
+## RESULTS
+
+### Observed
+
+- Dataset/archive/pairing/encoding/mask audit: passed with the single documented
+  orphan-mask warning.
+- Ten synthetic inspector/loader tests: passed.
+- Real loader smoke: 1,391 train and 644 test records; one sample from every
+  category decoded; one 518x518 SLIC sample produced 63 contiguous regions when
+  64 were requested (SLIC's segment count is approximate).
+- Full 518x518 test-loader integrity pass: all 644 pairs decoded; all 360
+  RGB-positive and 388 IR-positive masks remained nonempty after nearest-neighbor
+  resizing; negative-modality masks remained zero.
+- No model has been trained or evaluated for this extension.
+
+### Not results
+
+- The proposed router, thermal encoder, split performance, ablations, memory use,
+  and interview claims are hypotheses/plans until experiments are actually run.
+
+## Known limitations and next gates
+
+- Sequential RGB/IR acquisition is not calibrated. Cross-attention may still
+  learn spurious correspondences; attention maps and routing distributions must
+  be inspected.
+- IR localization cannot be scored by comparing an unregistered IR mask directly
+  with an RGB patch map.
+- Thermal mean/std has not been estimated. It must use only final `D_s` normal
+  training images and be saved with the experiment config.
+- The primary category split has not been tested and must remain locked before
+  model results are observed.
+- Next implementation gate: lightweight one-channel thermal encoder only. No
+  segment-aware PAA until RGB+IR region-conditioned routing passes shape,
+  gradient, mode, loss, checkpoint, and memory smoke tests.
