@@ -12,7 +12,7 @@ import torch
 from torch import nn
 
 
-CHECKPOINT_VERSION = 1
+CHECKPOINT_VERSION = 2
 
 
 def _model_components(model: nn.Module) -> Mapping[str, Any]:
@@ -34,6 +34,7 @@ def save_mulsen_checkpoint(
     scaler: Optional[Any],
     epoch: int,
     experiment_config: Mapping[str, Any],
+    data_generator: Optional[torch.Generator] = None,
 ) -> None:
     """Atomically save every trainable component and training state."""
 
@@ -47,6 +48,9 @@ def save_mulsen_checkpoint(
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
         "scaler": scaler.state_dict() if scaler is not None else None,
         "experiment_config": dict(experiment_config),
+        "data_generator_state": (
+            data_generator.get_state() if data_generator is not None else None
+        ),
         "rng_state": {
             "python": random.getstate(),
             "numpy": np.random.get_state(),
@@ -68,6 +72,7 @@ def load_mulsen_checkpoint(
     optimizer: Optional[torch.optim.Optimizer] = None,
     scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
     scaler: Optional[Any] = None,
+    data_generator: Optional[torch.Generator] = None,
     expected_config: Optional[Mapping[str, Any]] = None,
     restore_rng: bool = True,
     map_location: Union[str, torch.device] = "cpu",
@@ -110,6 +115,11 @@ def load_mulsen_checkpoint(
         scheduler.load_state_dict(checkpoint["scheduler"])
     if scaler is not None and checkpoint["scaler"] is not None:
         scaler.load_state_dict(checkpoint["scaler"])
+    if data_generator is not None:
+        generator_state = checkpoint.get("data_generator_state")
+        if generator_state is None:
+            raise ValueError("checkpoint has no DataLoader generator state")
+        data_generator.set_state(generator_state.cpu())
 
     if restore_rng:
         rng = checkpoint["rng_state"]

@@ -51,6 +51,8 @@ class MulSenCheckpointTest(unittest.TestCase):
         scheduler.step()
         expected = model(rgb, thermal).detach().clone()
         config = {"protocol_stage": "development", "variant": "D"}
+        data_generator = torch.Generator().manual_seed(101)
+        _ = torch.rand(3, generator=data_generator)
 
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "checkpoint.pth"
@@ -62,17 +64,21 @@ class MulSenCheckpointTest(unittest.TestCase):
                 scaler=None,
                 epoch=1,
                 experiment_config=config,
+                data_generator=data_generator,
             )
+            expected_generator_values = torch.rand(4, generator=data_generator)
             restored = _ToyExtension()
             restored_optimizer = torch.optim.Adam(restored.parameters(), lr=9e-2)
             restored_scheduler = torch.optim.lr_scheduler.MultiStepLR(
                 restored_optimizer, milestones=[2], gamma=0.1
             )
+            restored_generator = torch.Generator().manual_seed(999)
             checkpoint = load_mulsen_checkpoint(
                 path,
                 model=restored,
                 optimizer=restored_optimizer,
                 scheduler=restored_scheduler,
+                data_generator=restored_generator,
                 expected_config=config,
                 restore_rng=False,
             )
@@ -85,6 +91,10 @@ class MulSenCheckpointTest(unittest.TestCase):
             )
             self.assertEqual(
                 restored_scheduler.state_dict(), scheduler.state_dict()
+            )
+            torch.testing.assert_close(
+                torch.rand(4, generator=restored_generator),
+                expected_generator_values,
             )
 
             with self.assertRaisesRegex(ValueError, "config mismatch"):

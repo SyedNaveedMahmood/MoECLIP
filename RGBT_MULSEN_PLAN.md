@@ -286,7 +286,9 @@ spring_pad, zipper`
   overridable. `MoECLIP` defaults to the released norm expression, so existing
   `train.py`/`test.py` behavior is not silently changed.
 - `mulsen_checkpoint.py`: strict component, optimizer, scheduler, scaler,
-  experiment-config, and RNG checkpointing with atomic replacement.
+  experiment-config, global RNG, and DataLoader-generator checkpointing with
+  atomic replacement. Training recreates workers each epoch so resumed shuffle
+  order and joint-augmentation RNG derive from the restored generator state.
 - `evaluate_mulsen.py`: reconstructs architecture only from checkpoint config,
   evaluates the locked category subset, keeps image/RGB-pixel label semantics
   separate, records checkpoint hashes and per-sample score provenance, and
@@ -348,9 +350,82 @@ $Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
   --use-segment-paa
 ```
 
-The training CLI is implemented. A leakage-safe development evaluator and
-checkpoint-selection rule must be in place before asking the user to spend time
-on full A/B/D runs; no model training has been run.
+## User-run development commands
+
+These commands are available but have not been run. Run A first and inspect its
+log/checkpoints before spending compute on B and D.
+
+```powershell
+Set-Location "C:\Users\user7\Desktop\moeclip"
+$Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
+$DataRoot = "data\MulSenAD_official\MulSen_AD"
+$ThermalStats = "data\MulSenAD_official\thermal_stats_development.json"
+$Common = @(
+  "--dataset", "MulSenAD",
+  "--data_root", $DataRoot,
+  "--protocol_stage", "development",
+  "--model_name", "ViT-L-14-336",
+  "--img_size", "518",
+  "--moe_r", "8",
+  "--moe_lora_alpha", "16",
+  "--moe_num_experts", "4",
+  "--moe_top_k", "2",
+  "--moe_layers", "5,11,17,23",
+  "--router_init", "normal",
+  "--image_adapt_weight", "0.1",
+  "--seg_proj_sharing_strategy", "shared",
+  "--slic_segments", "64",
+  "--slic_compactness", "10.0",
+  "--thermal_depth", "4",
+  "--thermal_width", "256",
+  "--region_context_dim", "256",
+  "--region_attention_heads", "4",
+  "--region_coordinate_bias", "1.0",
+  "--region_coordinate_sigma", "0.75",
+  "--num_context_experts", "4",
+  "--modality_dropout", "0.2",
+  "--align_loss_lambda", "0.0",
+  "--adapter_norm_floor", "1.0",
+  "--epochs", "20",
+  "--batch_size", "1",
+  "--workers", "4",
+  "--lr", "5e-5",
+  "--weight_decay", "0.0",
+  "--lr_milestones", "12,16",
+  "--lr_gamma", "0.1",
+  "--balance_loss_lambda", "0.01",
+  "--etf_loss_lambda", "0.01",
+  "--amp_init_scale", "1024",
+  "--seed", "111"
+)
+
+# A: RGB-only MoECLIP baseline.
+& $Conda run --no-capture-output -n moeclip python train_mulsen.py @Common `
+  --variant A `
+  --output_dir "ckpt\mulsen_dev_A_seed111"
+
+# B: thermal patch-conditioned routing, without SLIC.
+& $Conda run --no-capture-output -n moeclip python train_mulsen.py @Common `
+  --variant B `
+  --thermal_stats $ThermalStats `
+  --output_dir "ckpt\mulsen_dev_B_seed111"
+
+# D: proposed RGB+IR segment-guided routing with standard PAA.
+& $Conda run --no-capture-output -n moeclip python train_mulsen.py @Common `
+  --variant D `
+  --thermal_stats $ThermalStats `
+  --output_dir "ckpt\mulsen_dev_D_seed111"
+
+# Leakage-safe development validation and checkpoint selection (example A).
+& $Conda run --no-capture-output -n moeclip python evaluate_mulsen.py `
+  --checkpoint_dir "ckpt\mulsen_dev_A_seed111" `
+  --data_root $DataRoot `
+  --output "ckpt\mulsen_dev_A_seed111\development_validation.json" `
+  --batch_size 1 `
+  --workers 4
+```
+
+No model training or checkpoint evaluation has been run for the extension.
 
 ## RESULTS
 
@@ -443,5 +518,5 @@ on full A/B/D runs; no model training has been run.
   they must be recomputed from normal training images in final `D_s` only.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next gate: finish offline evaluator review, then give the user the prioritized
-  A/B/D development-training and validation commands.
+- Next gate: the user runs A, returns the training tail and development
+  validation summary, and only then proceeds to B and D.

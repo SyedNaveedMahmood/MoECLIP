@@ -251,6 +251,8 @@ def build_experiment_config(
         "etf_loss_lambda": args.etf_loss_lambda,
         "align_loss_lambda": 0.0,
         "batch_size": args.batch_size,
+        "epochs": args.epochs,
+        "workers": args.workers,
         "amp": args.amp,
         "amp_init_scale": args.amp_init_scale,
         "seed": args.seed,
@@ -453,7 +455,9 @@ def main() -> None:
         shuffle=True,
         num_workers=args.workers,
         pin_memory=device.type == "cuda",
-        persistent_workers=args.workers > 0,
+        # Fresh workers each epoch make worker augmentation RNG reproducible
+        # from the checkpointed DataLoader generator after a resumed process.
+        persistent_workers=False,
         generator=generator,
     )
     optimizer = torch.optim.AdamW(
@@ -475,6 +479,7 @@ def main() -> None:
             optimizer=optimizer,
             scheduler=scheduler,
             scaler=scaler,
+            data_generator=generator,
             expected_config=experiment_config,
             map_location=device,
         )
@@ -528,6 +533,7 @@ def main() -> None:
             "scaler": scaler,
             "epoch": completed_epoch,
             "experiment_config": experiment_config,
+            "data_generator": generator,
         }
         save_mulsen_checkpoint(epoch_path, **checkpoint_args)
         save_mulsen_checkpoint(output_dir / "mulsen_last.pth", **checkpoint_args)
