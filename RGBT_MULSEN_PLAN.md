@@ -325,6 +325,7 @@ $Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
   --data-root "data\MulSenAD_official\MulSen_AD" `
   --thermal-stats "data\MulSenAD_official\thermal_stats_development.json" `
   --protocol-stage development `
+  --variant D `
   --sample-index 0 `
   --img-size 518 `
   --seed 111 `
@@ -332,9 +333,9 @@ $Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
   --use-segment-paa
 ```
 
-The training CLI is implemented. Before the first user-run training job, the
-real-model smoke should also cover A and B so the prioritized baseline paths are
-checked under the same environment; no model training has been run.
+The training CLI is implemented. A leakage-safe development evaluator and
+checkpoint-selection rule must be in place before asking the user to spend time
+on full A/B/D runs; no model training has been run.
 
 ## RESULTS
 
@@ -402,6 +403,12 @@ checked under the same environment; no model training has been run.
   component after the router-head stabilization update. It used 6,629.50 MiB
   peak allocated and 6,968 MiB peak reserved CUDA memory. These are feasibility
   measurements, not evidence that segment-aware PAA improves anomaly detection.
+- Real A and B CUDA smokes also passed under the same sample, seed, checkpoint,
+  and AMP settings. A required no thermal statistics, retained 12 maps, and used
+  4,674,560 trainable parameters with 6,574.55 MiB peak allocation. B retained
+  12 maps and activated thermal/context gradients after the stabilization step,
+  with 10,019,584 trainable parameters and 6,980.26 MiB peak allocation. The
+  generalized diagnostic therefore covers the prioritized A/B/D paths.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
@@ -421,5 +428,6 @@ checked under the same environment; no model training has been run.
   they must be recomputed from normal training images in final `D_s` only.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next gate: run bounded real-model A and B smokes, review the final commands,
-  then give the user the prioritized A/B/D development-training commands.
+- Next gate: implement leakage-safe validation metrics/checkpoint selection on
+  the two held-out development categories, then give the user the prioritized
+  A/B/D development-training commands.

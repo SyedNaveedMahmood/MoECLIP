@@ -1,9 +1,9 @@
 """Run a bounded real-data/real-model MulSen-AD gradient and memory smoke.
 
 This is not an experiment runner. It decodes one locked-protocol sample, makes
-one optimizer update to the deliberately zero-initialized context-router head,
-then runs a second backward pass to verify that multimodal conditioning becomes
-trainable after that stabilization step. No checkpoint or result is written.
+one optimizer update, then runs a second backward pass. For context-routed
+variants, this verifies that conditioning becomes trainable after the
+zero-initialized router head's stabilization step. No checkpoint is written.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from dataset.mulsen_protocol import build_training_dataset, get_protocol
 from dataset.mulsen_stats import ThermalNormalization
 from model.clip import create_model
 from model.moe_adapter import MoECLIP
-from train_mulsen import batch_loss, configure_trainable_parameters
+from train_mulsen import VARIANT_FLAGS, batch_loss, configure_trainable_parameters
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,8 +37,9 @@ def parse_args() -> argparse.Namespace:
         description="Bounded one-sample MulSen-AD ViT-L/14 CUDA smoke"
     )
     parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--thermal-stats", type=Path, required=True)
+    parser.add_argument("--thermal-stats", type=Path)
     parser.add_argument("--protocol-stage", choices=("development",), default="development")
+    parser.add_argument("--variant", choices=tuple(VARIANT_FLAGS), default="D")
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--img-size", type=int, default=518)
     parser.add_argument("--seed", type=int, default=111)
@@ -61,24 +62,13 @@ def _gradient_l1(module: torch.nn.Module) -> float:
 
 
 def _gradient_report(model: MoECLIP) -> Dict[str, object]:
-    context_modules = model.image_adapter["region_contexts"]
     moe_modules = model.image_adapter["moe_adapters"]
     expert_gradients = [
         _gradient_l1(expert)
         for adapter in moe_modules
         for expert in adapter.experts
     ]
-    return {
-        "thermal_encoder_l1": _gradient_l1(model.thermal_branch),
-        "thermal_attention_l1": float(
-            sum(_gradient_l1(context.thermal_attention) for context in context_modules)
-        ),
-        "context_mlp_l1": float(
-            sum(_gradient_l1(context.context_mlp) for context in context_modules)
-        ),
-        "context_router_head_l1": float(
-            sum(_gradient_l1(adapter.context_gate) for adapter in moe_modules)
-        ),
+    report = {
         "active_rgb_lora_experts": sum(value > 0.0 for value in expert_gradients),
         "rgb_lora_expert_l1": float(sum(expert_gradients)),
         "segmentation_projection_l1": _gradient_l1(
@@ -86,6 +76,31 @@ def _gradient_report(model: MoECLIP) -> Dict[str, object]:
         ),
         "text_adapter_l1": _gradient_l1(model.text_adapter),
     }
+    if model.use_context_routing:
+        context_modules = model.image_adapter["region_contexts"]
+        report.update(
+            {
+                "context_mlp_l1": float(
+                    sum(_gradient_l1(context.context_mlp) for context in context_modules)
+                ),
+                "context_router_head_l1": float(
+                    sum(_gradient_l1(adapter.context_gate) for adapter in moe_modules)
+                ),
+            }
+        )
+        if model.use_thermal:
+            report.update(
+                {
+                    "thermal_encoder_l1": _gradient_l1(model.thermal_branch),
+                    "thermal_attention_l1": float(
+                        sum(
+                            _gradient_l1(context.thermal_attention)
+                            for context in context_modules
+                        )
+                    ),
+                }
+            )
+    return report
 
 
 def _require_finite(report: Dict[str, object], pass_name: str) -> None:
@@ -147,20 +162,27 @@ def main() -> None:
     torch.cuda.manual_seed_all(args.seed)
     device = torch.device("cuda:0")
     protocol = get_protocol(args.protocol_stage)
-    normalization = ThermalNormalization.load(
-        args.thermal_stats,
-        expected_categories=protocol.train_categories,
-        expected_stage=protocol.stage,
-    )
+    use_thermal, use_region_routing = VARIANT_FLAGS[args.variant]
+    if args.use_segment_paa and not use_region_routing:
+        raise ValueError("segment-aware PAA is only valid for variants C/D")
+    normalization = None
+    if use_thermal:
+        if args.thermal_stats is None:
+            raise ValueError("variants B/D require --thermal-stats")
+        normalization = ThermalNormalization.load(
+            args.thermal_stats,
+            expected_categories=protocol.train_categories,
+            expected_stage=protocol.stage,
+        )
     dataset = build_training_dataset(
         args.data_root,
         args.protocol_stage,
         img_size=args.img_size,
-        use_region_routing=True,
+        use_region_routing=use_region_routing,
         slic_segments=64,
         slic_compactness=10.0,
-        thermal_mean=normalization.mean,
-        thermal_std=normalization.std,
+        thermal_mean=normalization.mean if normalization else None,
+        thermal_std=normalization.std if normalization else None,
         augment=False,
         geometry_seed=args.seed,
     )
@@ -196,8 +218,8 @@ def main() -> None:
         router_init="normal",
         use_fofs=True,
         moe_layers=[5, 11, 17, 23],
-        use_thermal=True,
-        use_region_routing=True,
+        use_thermal=use_thermal,
+        use_region_routing=use_region_routing,
         thermal_depth=4,
         thermal_width=256,
         region_context_dim=256,
@@ -256,17 +278,21 @@ def main() -> None:
 
     _require_finite(first["gradients"], "first-pass")
     _require_finite(second["gradients"], "second-pass")
-    if first["gradients"]["context_router_head_l1"] <= 0.0:
-        raise AssertionError("zero-initialized context router head received no gradient")
-    for key in (
-        "thermal_encoder_l1",
-        "thermal_attention_l1",
-        "context_mlp_l1",
-        "context_router_head_l1",
+    if model.use_context_routing:
+        if first["gradients"]["context_router_head_l1"] <= 0.0:
+            raise AssertionError(
+                "zero-initialized context router head received no gradient"
+            )
+    required_second_pass = [
         "rgb_lora_expert_l1",
         "segmentation_projection_l1",
         "text_adapter_l1",
-    ):
+    ]
+    if model.use_context_routing:
+        required_second_pass.extend(("context_mlp_l1", "context_router_head_l1"))
+    if model.use_thermal:
+        required_second_pass.extend(("thermal_encoder_l1", "thermal_attention_l1"))
+    for key in required_second_pass:
         if second["gradients"][key] <= 0.0:
             raise AssertionError(f"second-pass gradient is zero for {key}")
     if output_shapes.get("segmentation_maps") != 12:
@@ -276,6 +302,7 @@ def main() -> None:
         "status": "passed",
         "scope": "two backward passes on one sample; one optimizer update; no save",
         "gpu": torch.cuda.get_device_name(0),
+        "variant": args.variant,
         "sample": {
             "dataset_records": len(dataset),
             "index": args.sample_index,
@@ -284,13 +311,21 @@ def main() -> None:
             "file_name": sample["file_name"],
             "rgb_shape": list(sample["image"].shape),
             "thermal_shape": list(sample["thermal"].shape),
-            "region_count": int(sample["region_map"].unique().numel()),
+            "region_count": (
+                int(sample["region_map"].unique().numel())
+                if use_region_routing
+                else None
+            ),
         },
-        "normalization": {
-            "mean": normalization.mean,
-            "std": normalization.std,
-            "sample_count": normalization.sample_count,
-        },
+        "normalization": (
+            {
+                "mean": normalization.mean,
+                "std": normalization.std,
+                "sample_count": normalization.sample_count,
+            }
+            if normalization is not None
+            else None
+        ),
         "amp_initial_scale": args.amp_init_scale,
         "amp_enabled": args.amp,
         "segment_paa": args.use_segment_paa,
