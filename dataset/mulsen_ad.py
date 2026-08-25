@@ -41,6 +41,11 @@ except ImportError:  # pragma: no cover - exercised only in minimal installs
 _IMAGE_EXTENSIONS = {".png", ".bmp", ".jpg", ".jpeg", ".tif", ".tiff"}
 _CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
 _CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
+OFFICIAL_IR_MAX_CHANNEL_DELTA = 20
+# Full-archive audit maximum: capsule/Infrared/train/5.png at
+# 0.09185872395833333, with maximum channel delta 4.  The independent delta
+# cap still rejects materially color-encoded payloads.
+OFFICIAL_IR_MAX_NON_GRAY_FRACTION = 0.10
 
 
 class MulSenIntegrityError(RuntimeError):
@@ -247,8 +252,8 @@ class MulSenAD(Dataset):
         thermal_std: Optional[float] = None,
         require_opaque_alpha: bool = True,
         require_ir_grayscale: bool = True,
-        ir_max_channel_delta: int = 20,
-        ir_max_non_gray_fraction: float = 0.05,
+        ir_max_channel_delta: int = OFFICIAL_IR_MAX_CHANNEL_DELTA,
+        ir_max_non_gray_fraction: float = OFFICIAL_IR_MAX_NON_GRAY_FRACTION,
         region_method: Optional[str] = None,
         slic_segments: int = 64,
         slic_compactness: float = 10.0,
@@ -534,4 +539,11 @@ class MulSenAD(Dataset):
 
 MulSenADDataset = MulSenAD
 
-__all__ = ["MulSenAD", "MulSenADDataset", "MulSenIntegrityError", "MulSenSample"]
+__all__ = [
+    "MulSenAD",
+    "MulSenADDataset",
+    "MulSenIntegrityError",
+    "MulSenSample",
+    "OFFICIAL_IR_MAX_CHANNEL_DELTA",
+    "OFFICIAL_IR_MAX_NON_GRAY_FRACTION",
+]

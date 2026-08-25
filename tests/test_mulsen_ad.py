@@ -115,6 +115,20 @@ class MulSenADTest(unittest.TestCase):
         with self.assertRaisesRegex(MulSenIntegrityError, "grayscale-encoding tolerances"):
             _ = dataset[0]
 
+    def test_audited_sparse_low_amplitude_ir_channel_differences_are_allowed(self) -> None:
+        root = _make_fixture(self.tmp_path)
+        sparse = np.full((8, 10, 3), 40, dtype=np.uint8)
+        # 7/80 = 8.75%, below the audited 10% per-image bound. The spread of
+        # four matches the release file that exposed the previous 5% mismatch.
+        sparse.reshape(-1, 3)[:7, 0] = 44
+        _save(root / "Infrared" / "train" / "0.bmp", sparse)
+        dataset = MulSenAD(root.parent, split="train", categories=["toy"], img_size=8)
+
+        sample = dataset[0]
+
+        self.assertEqual(sample["thermal"].shape, (1, 8, 8))
+        self.assertTrue(torch.isfinite(sample["thermal"]).all())
+
     def test_slic_uses_rgb_not_ground_truth(self) -> None:
         root = _make_fixture(self.tmp_path)
         first = self._test_dataset(

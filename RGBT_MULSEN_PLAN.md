@@ -70,6 +70,11 @@ normal/anomalous text-scoring pathway?
   - 30 have sparse channel discrepancies;
   - discrepant pixels are 148,389/625,152,000 = 0.000237365;
   - maximum per-pixel channel spread is 20.
+- The maximum *per-image* non-equal-channel fraction is 0.091858724 in
+  `capsule/Infrared/train/5.png`; its maximum channel spread is only 4. The
+  loader therefore uses independent audited caps of 10% discrepant pixels and
+  channel spread 20. The earlier 5% cap was too strict and was corrected when
+  the user-run statistics pass reached this file.
 - Loader policy: validate the grayscale-like encoding, average decoded RGB
   channels symmetrically, divide by 255, and never perform per-image min/max
   normalization. Dataset mean/std, if used, must be estimated only from the

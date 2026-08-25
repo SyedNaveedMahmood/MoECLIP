@@ -17,7 +17,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from dataset.mulsen_ad import MulSenAD, _open_thermal
+from dataset.mulsen_ad import (
+    MulSenAD,
+    OFFICIAL_IR_MAX_CHANNEL_DELTA,
+    OFFICIAL_IR_MAX_NON_GRAY_FRACTION,
+    _open_thermal,
+)
 from dataset.mulsen_protocol import PROTOCOL_VERSION, get_protocol
 
 
@@ -81,8 +86,8 @@ def main() -> None:
         thermal = _open_thermal(
             record.thermal_path,
             require_gray=True,
-            max_channel_delta=20,
-            max_non_gray_fraction=0.05,
+            max_channel_delta=OFFICIAL_IR_MAX_CHANNEL_DELTA,
+            max_non_gray_fraction=OFFICIAL_IR_MAX_NON_GRAY_FRACTION,
         )
         moments.update(thermal.astype(np.float64) / 255.0)
         if index % 100 == 0 or index == len(dataset.records):
