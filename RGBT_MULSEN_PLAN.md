@@ -1,6 +1,7 @@
 # Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
 
-Status: dataset audit and standalone loader complete; model and training integration not started.
+Status: dataset audit, standalone loader, and isolated thermal conditioning
+encoder complete; router and training integration not started.
 
 Last updated: 2026-08-25
 
@@ -213,6 +214,12 @@ spring_pad, zipper`
 - `dataset/mulsen_ad.py`: standalone strict RGB+IR loader with separate labels,
   separate masks, synchronized optional geometry, and RGB-only SLIC.
 - `tests/test_mulsen_ad.py`: synthetic loader tests.
+- `model/thermal_branch.py::ThermalEncoder`: 1.12M-parameter, four-block local
+  thermal encoder. A 518x518 one-channel tensor produces four patch-only
+  37x37 taps with width 256. It has no CLS token, no unregistered positional
+  tensor, and is not yet connected to MoECLIP.
+- `tests/test_thermal_encoder.py`: patch-count, input-contract, gradient,
+  parameter-budget, and state-dict round-trip tests.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -222,7 +229,10 @@ spring_pad, zipper`
 conda activate moeclip
 $Py = (Get-Command python).Source
 
-& $Py -m unittest tests.test_mulsen_ad tools.test_inspect_mulsen_alignment -v
+& $Py -m unittest `
+  tests.test_mulsen_ad `
+  tests.test_thermal_encoder `
+  tools.test_inspect_mulsen_alignment -v
 
 & $Py tools\inspect_mulsen_alignment.py `
   --data-root "data\MulSenAD_official\MulSen_AD" `
@@ -247,12 +257,18 @@ No training or evaluation command is defined yet.
 - Full 518x518 test-loader integrity pass: all 644 pairs decoded; all 360
   RGB-positive and 388 IR-positive masks remained nonempty after nearest-neighbor
   resizing; negative-modality masks remained zero.
+- Thermal encoder smoke on the real `capsule/train/good/0.png` IR payload:
+  input `[1,1,518,518]`, four `[1,1369,256]` taps, finite nonzero gradients at
+  the patch stem, early/late spatial blocks, and output normalization/projection.
+  The default encoder has 1,117,952 trainable parameters. State-dict round-trip
+  produces bit-identical deterministic evaluation output in the unit fixture.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
 
-- The proposed router, thermal encoder, split performance, ablations, memory use,
-  and interview claims are hypotheses/plans until experiments are actually run.
+- The proposed router, end-to-end multimodal model, split performance, ablations,
+  CUDA memory use, and interview claims are hypotheses/plans until experiments
+  are actually run.
 
 ## Known limitations and next gates
 
@@ -265,6 +281,7 @@ No training or evaluation command is defined yet.
   training images and be saved with the experiment config.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next implementation gate: lightweight one-channel thermal encoder only. No
-  segment-aware PAA until RGB+IR region-conditioned routing passes shape,
-  gradient, mode, loss, checkpoint, and memory smoke tests.
+- Next implementation gate: region pooling plus registration-tolerant thermal
+  context and router conditioning. No segment-aware PAA until RGB+IR
+  region-conditioned routing passes shape, gradient, mode, loss, checkpoint,
+  and memory smoke tests.
