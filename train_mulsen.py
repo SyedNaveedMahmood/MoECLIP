@@ -93,6 +93,7 @@ def parse_args():
     parser.add_argument("--image_adapt_weight", type=float, default=0.1)
     parser.add_argument("--no_use_paa", dest="use_paa", action="store_false")
     parser.set_defaults(use_paa=True)
+    parser.add_argument("--use_segment_paa", action="store_true")
     parser.add_argument(
         "--seg_proj_sharing_strategy",
         choices=("shared", "separate"),
@@ -165,6 +166,10 @@ def validate_args(args) -> Tuple[bool, bool]:
         raise ValueError("adapter_norm_floor must be finite and positive")
     if args.moe_num_experts < args.moe_top_k or args.moe_top_k <= 0:
         raise ValueError("moe_top_k must be within 1..moe_num_experts")
+    if args.use_segment_paa and not args.use_paa:
+        raise ValueError("use_segment_paa requires standard PAA to be enabled")
+    if args.use_segment_paa and not use_region_routing:
+        raise ValueError("use_segment_paa is only defined for variants C/D")
     if args.num_context_experts is not None and not (
         0 <= args.num_context_experts <= args.moe_num_experts
     ):
@@ -207,6 +212,7 @@ def build_experiment_config(
         "router_init": args.router_init,
         "use_fofs": args.use_fofs,
         "use_paa": args.use_paa,
+        "use_segment_paa": args.use_segment_paa,
         "seg_proj_sharing_strategy": args.seg_proj_sharing_strategy,
         "image_adapt_weight": args.image_adapt_weight,
         "thermal_depth": args.thermal_depth,
@@ -382,6 +388,7 @@ def main() -> None:
     model = MoECLIP(
         clip_model=clip_model,
         use_paa=args.use_paa,
+        use_segment_paa=args.use_segment_paa,
         seg_proj_sharing_strategy=args.seg_proj_sharing_strategy,
         image_adapt_weight=args.image_adapt_weight,
         moe_r=args.moe_r,

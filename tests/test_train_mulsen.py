@@ -26,6 +26,8 @@ def _args(**overrides):
         "num_context_experts": None,
         "amp_init_scale": 1024.0,
         "adapter_norm_floor": 1.0,
+        "use_paa": True,
+        "use_segment_paa": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -70,6 +72,10 @@ class TrainMulSenTest(unittest.TestCase):
             validate_args(_args(amp_init_scale=0.0))
         with self.assertRaisesRegex(ValueError, "adapter_norm_floor"):
             validate_args(_args(adapter_norm_floor=0.0))
+        with self.assertRaisesRegex(ValueError, "variants C/D"):
+            validate_args(_args(variant="B", use_segment_paa=True))
+        with self.assertRaisesRegex(ValueError, "standard PAA"):
+            validate_args(_args(use_segment_paa=True, use_paa=False))
 
     def test_loss_is_finite_and_uses_multimodal_region_inputs(self) -> None:
         torch.manual_seed(31)

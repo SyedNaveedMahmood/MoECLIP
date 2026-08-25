@@ -45,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amp-init-scale", type=float, default=1024.0)
     parser.add_argument("--no-amp", dest="amp", action="store_false")
     parser.set_defaults(amp=True)
+    parser.add_argument("--use-segment-paa", action="store_true")
     return parser.parse_args()
 
 
@@ -185,6 +186,7 @@ def main() -> None:
     model = MoECLIP(
         clip_model=clip_model,
         use_paa=True,
+        use_segment_paa=args.use_segment_paa,
         seg_proj_sharing_strategy="shared",
         image_adapt_weight=0.1,
         moe_r=8,
@@ -291,6 +293,7 @@ def main() -> None:
         },
         "amp_initial_scale": args.amp_init_scale,
         "amp_enabled": args.amp,
+        "segment_paa": args.use_segment_paa,
         "outputs": output_shapes,
         "first_pass": first,
         "second_pass": second,

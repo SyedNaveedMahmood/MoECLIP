@@ -97,6 +97,64 @@ class RegionMoECLIPTest(unittest.TestCase):
         self.assertEqual(etf.item(), 0.0)
         self.assertFalse(model.stable_adapter_norm)
 
+    def test_segment_paa_requires_region_routing_and_standard_paa(self) -> None:
+        with self.assertRaisesRegex(ValueError, "region-guided"):
+            _model(use_segment_paa=True)
+        with self.assertRaisesRegex(ValueError, "use_paa"):
+            _model(
+                use_region_routing=True,
+                use_paa=False,
+                use_segment_paa=True,
+            )
+
+    def test_segment_paa_excludes_other_regions_and_padding(self) -> None:
+        model = _model(
+            use_region_routing=True,
+            use_segment_paa=True,
+        )
+        tokens = torch.cat(
+            (
+                torch.tensor([[[99.0]]]),
+                torch.arange(1.0, 10.0).reshape(1, 9, 1),
+            ),
+            dim=1,
+        )
+        regions = torch.tensor([[0, 0, 1, 0, 0, 1, 2, 2, 1]])
+
+        standard = model._aggregate_neighbor(tokens, 3)
+        segmented = model._aggregate_neighbor_by_segment(tokens, regions, 3)
+
+        self.assertEqual(float(segmented[0, 0, 0]), 99.0)
+        self.assertEqual(float(standard[0, 5, 0]), 5.0)
+        self.assertEqual(float(segmented[0, 5, 0]), 3.0)
+        self.assertEqual(float(segmented[0, 9, 0]), 7.5)
+        torch.testing.assert_close(
+            model._aggregate_neighbor_by_segment(tokens, regions, 1), tokens
+        )
+
+    def test_segment_paa_is_an_independent_twelve_map_ablation(self) -> None:
+        standard = _model(use_thermal=True, use_region_routing=True).eval()
+        segmented = _model(
+            use_thermal=True,
+            use_region_routing=True,
+            use_segment_paa=True,
+        ).eval()
+        segmented.load_state_dict(standard.state_dict())
+        image, thermal, region_map = _inputs()
+
+        with torch.no_grad():
+            standard_outputs = standard(
+                image, thermal=thermal, region_map=region_map
+            )
+            segmented_outputs = segmented(
+                image, thermal=thermal, region_map=region_map
+            )
+
+        self.assertEqual(len(standard_outputs[0]), 12)
+        self.assertEqual(len(segmented_outputs[0]), 12)
+        torch.testing.assert_close(segmented_outputs[0][0], standard_outputs[0][0])
+        self.assertFalse(torch.equal(segmented_outputs[0][1], standard_outputs[0][1]))
+
     def test_region_thermal_forward_remains_rgb_patch_derived(self) -> None:
         model = _model(use_thermal=True, use_region_routing=True).eval()
         _activate_conditioning(model)

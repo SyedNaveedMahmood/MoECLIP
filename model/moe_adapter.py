@@ -366,6 +366,7 @@ class MoECLIP(nn.Module):
         self,
         clip_model,
         use_paa: bool = True,
+        use_segment_paa: bool = False,
         seg_proj_sharing_strategy: str = "shared",
         image_adapt_weight: float = 0.1,
         levels: list = [6, 12, 18, 24],
@@ -413,6 +414,11 @@ class MoECLIP(nn.Module):
         self.use_thermal = bool(use_thermal)
         self.use_region_routing = bool(use_region_routing)
         self.use_context_routing = self.use_thermal or self.use_region_routing
+        if use_segment_paa and not use_paa:
+            raise ValueError("use_segment_paa requires use_paa=True")
+        if use_segment_paa and not self.use_region_routing:
+            raise ValueError("use_segment_paa requires region-guided routing")
+        self.use_segment_paa = bool(use_segment_paa)
         if not 0.0 <= modality_dropout <= 1.0:
             raise ValueError("modality_dropout must be in [0,1]")
         self.modality_dropout = float(modality_dropout)
@@ -565,12 +571,81 @@ class MoECLIP(nn.Module):
         
         return torch.cat([cls_token, aggregated_patches], dim=1)
 
-    def _aggregate_neighbors(self, tokens_from_layers: list) -> list:
+    def _aggregate_neighbor_by_segment(
+        self,
+        x: torch.Tensor,
+        patch_region_ids: torch.Tensor,
+        r: int,
+    ) -> torch.Tensor:
+        """Average only spatial neighbors sharing the center patch's region."""
+
+        if r not in {1, 3, 5}:
+            raise ValueError("segment-aware PAA supports scales 1, 3, and 5")
+        cls_token = x[:, :1, :]
+        patch_tokens = x[:, 1:, :]
+        batch_size, patch_count, channels = patch_tokens.shape
+        side = int(round(math.sqrt(patch_count)))
+        if side * side != patch_count:
+            raise ValueError("segment-aware PAA requires a square patch grid")
+        if patch_region_ids.shape != (batch_size, patch_count):
+            raise ValueError(
+                "patch_region_ids must match the batch and patch-token layout"
+            )
+        if r == 1:
+            return x
+
+        padding = r // 2
+        patch_grid = patch_tokens.permute(0, 2, 1).reshape(
+            batch_size, channels, side, side
+        )
+        neighbor_features = F.unfold(
+            patch_grid, kernel_size=r, padding=padding, stride=1
+        )
+        neighbor_features = neighbor_features.reshape(
+            batch_size, channels, r * r, patch_count
+        ).permute(0, 3, 2, 1)
+
+        region_grid = patch_region_ids.reshape(
+            batch_size, 1, side, side
+        ).to(dtype=torch.float32)
+        neighbor_regions = F.unfold(
+            region_grid, kernel_size=r, padding=padding, stride=1
+        ).transpose(1, 2)
+        valid_neighbors = F.unfold(
+            torch.ones_like(region_grid),
+            kernel_size=r,
+            padding=padding,
+            stride=1,
+        ).transpose(1, 2).bool()
+        same_region = (
+            neighbor_regions == patch_region_ids.unsqueeze(-1).to(torch.float32)
+        ) & valid_neighbors
+        weights = same_region.unsqueeze(-1).to(dtype=neighbor_features.dtype)
+        denominator = weights.sum(dim=2).clamp_min(1.0)
+        aggregated = (neighbor_features * weights).sum(dim=2) / denominator
+        return torch.cat([cls_token, aggregated], dim=1)
+
+    def _aggregate_neighbors(
+        self,
+        tokens_from_layers: list,
+        patch_region_ids: Optional[torch.Tensor] = None,
+    ) -> list:
         aggregated_token_list = []
         for token_map in tokens_from_layers:
             for r in [1, 3, 5]:
                 permuted_token_map = token_map.permute(1, 0, 2)
-                aggregated_token = self._aggregate_neighbor(permuted_token_map, r)
+                if self.use_segment_paa:
+                    if patch_region_ids is None:
+                        raise ValueError(
+                            "segment-aware PAA requires patch_region_ids"
+                        )
+                    aggregated_token = self._aggregate_neighbor_by_segment(
+                        permuted_token_map, patch_region_ids, r
+                    )
+                else:
+                    aggregated_token = self._aggregate_neighbor(
+                        permuted_token_map, r
+                    )
                 aggregated_token_list.append(aggregated_token.permute(1, 0, 2))
         return aggregated_token_list
 
@@ -763,7 +838,12 @@ class MoECLIP(nn.Module):
                 tokens.append(x)
 
         if self.use_paa:
-            tokens = self._aggregate_neighbors(tokens)
+            tokens = self._aggregate_neighbors(
+                tokens,
+                patch_region_ids=(
+                    patch_region_ids if self.use_segment_paa else None
+                ),
+            )
         return self._readout_rgb(
             tokens, total_load_balance_loss, total_etf_loss
         )

@@ -113,8 +113,9 @@ adapted representation out of CLIP visual space.
 - SLIC is computed on transformed RGB only, after shared geometry and before
   CLIP normalization. Ground-truth masks never enter SLIC or routing.
 - Every RGB patch retains its own expert computation and CLIP-text comparison.
-- Segment-aware PAA is deferred until the region-conditioned router works and is
-  an independent ablation.
+- Segment-aware PAA was implemented only after the region-conditioned router
+  passed its real-model gate and remains an independent, parameter-free
+  ablation. Standard PAA remains the default.
 
 ### Registration-tolerant thermal context
 
@@ -147,7 +148,8 @@ hard-coded modality semantics in v1.
 - **C -- RGB-only region routing:** SLIC RGB region context conditions the router.
 - **D -- RGB+IR region-conditioned routing:** proposed region-to-thermal attention
   and region router residual.
-- **E -- D plus segment-aware PAA:** implemented only after D works.
+- **E -- D plus segment-aware PAA:** same D model with same-SLIC-neighbor PAA
+  enabled at scales 1, 3, and 5.
 
 ## Proposed category-held-out ZSAD protocol
 
@@ -247,8 +249,13 @@ spring_pad, zipper`
 - The exploratory thermal-expert stream, thermal readout projections, final
   fusion gates, and unregistered lazy thermal positional state were removed.
 - `tests/test_region_moeclip.py`: A/B/C/D forward contracts, 12 standard-PAA
-  maps, RGB-only expert widths, dropout mode, gradients, PatchDropout guard, and
-  deterministic full-state round-trip tests on a small CLIP-shaped fixture.
+  maps, RGB-only expert widths, dropout mode, gradients, PatchDropout guard,
+  deterministic full-state round-trip, and exact segment-PAA boundary tests on
+  a small CLIP-shaped fixture.
+- Optional segment-aware PAA applies the same spatial scales `{1,3,5}` but
+  includes a neighbor only when its SLIC-derived patch region equals the center
+  patch's region. Padding and other regions are excluded from the denominator.
+  It is valid only for C/D, adds no parameters, and leaves standard PAA intact.
 - `dataset/mulsen_protocol.py`: executable, locked development/final category
   partitions. Training composes official normal-train samples with only
   RGB-or-IR-visible seen-category anomalies; evaluation retains good and visible
@@ -321,12 +328,13 @@ $Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
   --sample-index 0 `
   --img-size 518 `
   --seed 111 `
-  --amp-init-scale 1024
+  --amp-init-scale 1024 `
+  --use-segment-paa
 ```
 
-The training CLI is implemented. A concrete experiment command remains
-withheld until segment-aware PAA is implemented and its independent smoke gate
-passes; no model training has been run.
+The training CLI is implemented. Before the first user-run training job, the
+real-model smoke should also cover A and B so the prioritized baseline paths are
+checked under the same environment; no model training has been run.
 
 ## RESULTS
 
@@ -389,13 +397,17 @@ passes; no model training has been run.
   outputs and half-precision ETF normalization; both are now hardened. AMP
   initial scale 65,536 still overflowed this batch, while an explicit scale
   1,024 was finite and is now the configurable, recorded MulSen default.
+- Real variant-E (D plus segment-aware PAA) CUDA smoke passed on the same sample
+  with 12 `[1,1369,768]` maps and finite gradients through every required
+  component after the router-head stabilization update. It used 6,629.50 MiB
+  peak allocated and 6,968 MiB peak reserved CUDA memory. These are feasibility
+  measurements, not evidence that segment-aware PAA improves anomaly detection.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
 
-- The proposed router, end-to-end multimodal model, split performance, ablations,
-  CUDA memory use, and interview claims are hypotheses/plans until experiments
-  are actually run.
+- Split performance, comparative ablation effects, generalization, and interview
+  performance claims remain unknown until experiments are actually run.
 
 ## Known limitations and next gates
 
@@ -409,5 +421,5 @@ passes; no model training has been run.
   they must be recomputed from normal training images in final `D_s` only.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next gate: implement segmentation-constrained PAA as an independently
-  switchable ablation, while leaving standard PAA and variants A--D unchanged.
+- Next gate: run bounded real-model A and B smokes, review the final commands,
+  then give the user the prioritized A/B/D development-training commands.
