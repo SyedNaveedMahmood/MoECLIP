@@ -1,15 +1,38 @@
-# MoECLIP: Patch-Specialized Experts for Zero-shot Anomaly Detection
+# MoECLIP reproduction and region-guided RGB-T extension
 <p align="center">
   <a href="https://openaccess.thecvf.com/content/CVPR2026/html/Park_MoECLIP_Patch-Specialized_Experts_for_Zero-shot_Anomaly_Detection_CVPR_2026_paper.html"><img src="https://img.shields.io/badge/CVPR-2026-blue" alt="CVPR 2026"></a>
-  <a href="https://arxiv.org/abs/2603.03101"><img src="https://img.shields.io/badge/arXiv-2603.07952-b31b1b" alt="arXiv"></a>
+  <a href="https://arxiv.org/abs/2603.03101"><img src="https://img.shields.io/badge/arXiv-2603.03101-b31b1b" alt="arXiv"></a>
 </p>
 
-This is the official PyTorch implementation of:
+This repository started from the authors' released PyTorch implementation of:
 
 > **MoECLIP: Patch-Specialized Experts for Zero-shot Anomaly Detection**
 >
 > *CVPR 2026*
- 
+
+It now also contains an independently audited released-code reproduction and a
+research extension for category-held-out RGB-thermal anomaly detection on
+MulSen-AD. The original `train.py`/`test.py` pathway remains available; the
+MulSen work uses separate `train_mulsen.py`/`evaluate_mulsen.py` entry points.
+
+## Repository tracks
+
+- **Upstream MoECLIP:** the released RGB architecture and benchmark workflow.
+- **Released-code reproduction:** observed runs and paper/code caveats are in
+  [`RESULTS_SUMMARY.md`](RESULTS_SUMMARY.md). They are not presented as proof of
+  exact paper-specification fidelity.
+- **Region-guided RGB-T extension:** the frozen D-v1.1 architecture, leakage-safe
+  protocol, and detailed research record are in
+  [`RGBT_MULSEN_PLAN.md`](RGBT_MULSEN_PLAN.md).
+- **Interview summary and results:** see
+  [`RGBT_MULSEN_FINAL.md`](RGBT_MULSEN_FINAL.md) and the tracked
+  [`results/mulsen/`](results/mulsen/README.md) artifacts.
+
+The D-v1.1 extension keeps LoRA experts on RGB CLIP tokens and uses RGB SLIC plus
+full-grid thermal attention only to condition patch routing. Thermal auxiliary
+classification, reliability gating, segment-aware PAA, alignment loss, and CLS
+conditioning are outside the frozen primary experiment.
+
 ## Abstract
 &nbsp;&nbsp;The CLIP model's outstanding generalization has driven recent success in Zero-Shot Anomaly Detection (ZSAD) for detecting anomalies in unseen categories. 
 The core challenge in ZSAD is to specialize the model for anomaly detection tasks while preserving CLIP's powerful generalization capability. 
@@ -23,7 +46,7 @@ Comprehensive experimental results across 14 benchmark datasets spanning industr
 <img src="./assets/framework.png" width="1200" height="1000">
 &nbsp;&nbsp;MoE is integrated into multiple layers of the CLIP Vision Encoder, enabling dynamic expert routing for each image patch to learn patch-specific representations for ZSAD. Within each MoE, FOFS enforces expert specialization by orthogonally separating the feature space and ETF loss further enhances expert diversity by maximizing the equiangular separation of expert outputs. PAA then aggregates the refined patch features across multiple scales to capture anomalies of different sizes.MoE is integrated into multiple layers of the CLIP Vision Encoder, enabling dynamic expert routing for each image patch to learn patch-specific representations for ZSAD. Within each MoE, FOFS enforces expert specialization by orthogonally separating the feature space and ETF loss further enhances expert diversity by maximizing the equiangular separation of expert outputs. PAA then aggregates the refined patch features across multiple scales to capture anomalies of different sizes.
 
-## Quick Start 
+## Upstream quick start
 ### 1. Installation  
 ```bash
 cd MoECLIP
@@ -54,6 +77,14 @@ python test.py
 # (Optional) bash script for training and evaluating all the datasets
 bash scripts.sh
 ```
+
+## MulSen-AD RGB-T workflow
+
+MulSen-AD data is not redistributed. Follow the audited dataset/protocol notes
+and PowerShell commands in [`RGBT_MULSEN_PLAN.md`](RGBT_MULSEN_PLAN.md). Frozen
+development commands and portable configs are recorded in
+[`results/mulsen/development/`](results/mulsen/development/README.md). Final
+commands/results will be added only after the frozen-tag refits are run.
 
 ## Comparison with State-of-the-art methods
 <img src="./assets/main_result.png" width="1200" height="1000">

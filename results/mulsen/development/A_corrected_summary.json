@@ -1,0 +1,580 @@
+{
+  "label": "A_corrected",
+  "protocol_version": "mulsen-rgbt-zsad-v1",
+  "protocol_stage": "development",
+  "run_source_commit": "598e54826598a164c6224838c9d1598283df631d",
+  "run_source_commit_note": "Audited repository state for the run; the checkpoint format did not embed a Git commit.",
+  "seed": 111,
+  "variant": "A",
+  "train_categories": [
+    "button_cell",
+    "capsule",
+    "cube",
+    "flat_pad",
+    "light",
+    "screen",
+    "spring_pad",
+    "zipper"
+  ],
+  "evaluation_categories": [
+    "plastic_cylinder",
+    "screw"
+  ],
+  "evaluation_sample_count": 76,
+  "checkpoint_selection": {
+    "rule": "mean of macro image-combined AUROC and macro RGB-pixel AUROC",
+    "tie_break": "earliest epoch",
+    "selected_epoch": 9,
+    "selection_score": 0.7852954202352143
+  },
+  "metrics": {
+    "macro": {
+      "macro_image_combined_auroc": 0.5806451612903225,
+      "macro_image_combined_ap": 0.8192382542165639,
+      "macro_image_detection_auroc": 0.40838709677419355,
+      "macro_rgb_pixel_auroc": 0.989945679180106,
+      "macro_rgb_pixel_ap": 0.21298477261875415,
+      "selection_score": 0.7852954202352143,
+      "macro_image_detection_ap": 0.7308646703869724
+    },
+    "pooled_diagnostics": {
+      "subgroups": {
+        "good": {
+          "sample_count": 20,
+          "anomalous_images": 0,
+          "detection_score": {
+            "sample_count": 20,
+            "mean": 0.7240161657333374,
+            "std": 0.023886307275002506,
+            "min": 0.6697689294815063,
+            "q25": 0.708303302526474,
+            "median": 0.7271838486194611,
+            "q75": 0.7438791543245316,
+            "max": 0.7533815503120422
+          },
+          "patch_max_score_raw": {
+            "sample_count": 20,
+            "mean": -172.35125007629395,
+            "std": 49.92747749455061,
+            "min": -224.22691345214844,
+            "q25": -220.9617691040039,
+            "median": -177.57543182373047,
+            "q75": -127.41699600219727,
+            "max": -109.7958984375
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 20,
+            "mean": 0.6679588948002235,
+            "std": 0.19989763087547952,
+            "min": 0.45780828717831046,
+            "q25": 0.48255718334385045,
+            "median": 0.6264689331671888,
+            "q75": 0.8241372381332548,
+            "max": 0.9630895395284436
+          },
+          "combined_score": {
+            "sample_count": 20,
+            "mean": 0.6959875302667805,
+            "std": 0.11081778779051751,
+            "min": 0.5749620986304141,
+            "q25": 0.5903980243443422,
+            "median": 0.6752132497904022,
+            "q75": 0.7840081962288932,
+            "max": 0.8582355449202429
+          }
+        },
+        "rgb_only": {
+          "sample_count": 16,
+          "anomalous_images": 16,
+          "detection_score": {
+            "sample_count": 16,
+            "mean": 0.7359789237380028,
+            "std": 0.00811881702606215,
+            "min": 0.7228666543960571,
+            "q25": 0.7290167361497879,
+            "median": 0.7397353649139404,
+            "q75": 0.741968035697937,
+            "max": 0.7468879222869873
+          },
+          "patch_max_score_raw": {
+            "sample_count": 16,
+            "mean": -119.08028507232666,
+            "std": 9.197246244123923,
+            "min": -141.23989868164062,
+            "q25": -122.34383773803711,
+            "median": -117.70879745483398,
+            "q75": -113.26811981201172,
+            "max": -105.1151351928711
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 16,
+            "mean": 0.8898769098829156,
+            "std": 0.07252547847414584,
+            "min": 0.715135847486714,
+            "q25": 0.8641419548405359,
+            "median": 0.9006918639506696,
+            "q75": 0.9357091139238222,
+            "max": 1.0
+          },
+          "combined_score": {
+            "sample_count": 16,
+            "mean": 0.8129279168104593,
+            "std": 0.03523375986761307,
+            "min": 0.7310118848868506,
+            "q25": 0.7979633616965738,
+            "median": 0.8189485053247305,
+            "q75": 0.8396504347762039,
+            "max": 0.8614676594734192
+          }
+        },
+        "ir_only": {
+          "sample_count": 8,
+          "anomalous_images": 8,
+          "detection_score": {
+            "sample_count": 8,
+            "mean": 0.625837754458189,
+            "std": 0.12768356110822024,
+            "min": 0.37793442606925964,
+            "q25": 0.5791584402322769,
+            "median": 0.7016637623310089,
+            "q75": 0.7059902846813202,
+            "max": 0.7409343719482422
+          },
+          "patch_max_score_raw": {
+            "sample_count": 8,
+            "mean": -225.78601264953613,
+            "std": 3.739520628648627,
+            "min": -233.0908203125,
+            "q25": -227.00791931152344,
+            "median": -226.25481414794922,
+            "q75": -224.3907699584961,
+            "max": -219.82904052734375
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 8,
+            "mean": 0.4459907440519699,
+            "std": 0.02834453790685002,
+            "min": 0.390622310964879,
+            "q25": 0.4367290276078899,
+            "median": 0.44243735762571035,
+            "q75": 0.4565662999246839,
+            "max": 0.4911429544272737
+          },
+          "combined_score": {
+            "sample_count": 8,
+            "mean": 0.5359142492550795,
+            "std": 0.06333637983055851,
+            "min": 0.4113962757098508,
+            "q25": 0.5233462789718667,
+            "median": 0.561900581622659,
+            "q75": 0.5760468096331572,
+            "max": 0.5931891839309616
+          }
+        },
+        "rgb_ir": {
+          "sample_count": 32,
+          "anomalous_images": 32,
+          "detection_score": {
+            "sample_count": 32,
+            "mean": 0.7141473013907671,
+            "std": 0.07114883220441842,
+            "min": 0.3821192979812622,
+            "q25": 0.7194363474845886,
+            "median": 0.7389649748802185,
+            "q75": 0.7442927807569504,
+            "max": 0.7695467472076416
+          },
+          "patch_max_score_raw": {
+            "sample_count": 32,
+            "mean": -155.24493551254272,
+            "std": 39.386292954003224,
+            "min": -223.0753173828125,
+            "q25": -185.49935150146484,
+            "median": -154.9393310546875,
+            "q75": -118.00827407836914,
+            "max": -109.55413055419922
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 32,
+            "mean": 0.8098638627524012,
+            "std": 0.15551649101962112,
+            "min": 0.46653706866720085,
+            "q25": 0.751352555751505,
+            "median": 0.8791503229891113,
+            "q75": 0.9130557161763501,
+            "max": 1.0
+          },
+          "combined_score": {
+            "sample_count": 32,
+            "mean": 0.7620055820715841,
+            "std": 0.10327316129795862,
+            "min": 0.4284208369496754,
+            "q25": 0.7468981991124346,
+            "median": 0.810093516342357,
+            "q75": 0.8287528556422867,
+            "max": 0.8693796098232269
+          }
+        }
+      },
+      "category_subgroups": {
+        "plastic_cylinder": {
+          "good": {
+            "sample_count": 10,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 10,
+              "mean": 0.7027446627616882,
+              "std": 0.013902436409516725,
+              "min": 0.6697689294815063,
+              "q25": 0.6965005248785019,
+              "median": 0.7064206004142761,
+              "q75": 0.7126822769641876,
+              "max": 0.7176128625869751
+            },
+            "patch_max_score_raw": {
+              "sample_count": 10,
+              "mean": -221.72669219970703,
+              "std": 1.7174877409832008,
+              "min": -224.22691345214844,
+              "q25": -223.50206756591797,
+              "median": -221.06739807128906,
+              "q75": -220.18725204467773,
+              "max": -219.80189514160156
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 10,
+              "mean": 0.47675927665070905,
+              "std": 0.01301808472612727,
+              "min": 0.45780828717831046,
+              "q25": 0.46330241964584773,
+              "median": 0.481756544822341,
+              "q75": 0.4884278096426833,
+              "max": 0.4913487089855641
+            },
+            "combined_score": {
+              "sample_count": 10,
+              "mean": 0.5897519697061987,
+              "std": 0.007690892697787746,
+              "min": 0.5749620986304141,
+              "q25": 0.5850466198703452,
+              "median": 0.5900460868960977,
+              "q75": 0.5953659858367844,
+              "max": 0.6006703780616253
+            }
+          },
+          "rgb_only": {
+            "sample_count": 0,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 0
+            },
+            "patch_max_score_raw": {
+              "sample_count": 0
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 0
+            },
+            "combined_score": {
+              "sample_count": 0
+            }
+          },
+          "ir_only": {
+            "sample_count": 8,
+            "anomalous_images": 8,
+            "detection_score": {
+              "sample_count": 8,
+              "mean": 0.625837754458189,
+              "std": 0.12768356110822024,
+              "min": 0.37793442606925964,
+              "q25": 0.5791584402322769,
+              "median": 0.7016637623310089,
+              "q75": 0.7059902846813202,
+              "max": 0.7409343719482422
+            },
+            "patch_max_score_raw": {
+              "sample_count": 8,
+              "mean": -225.78601264953613,
+              "std": 3.739520628648627,
+              "min": -233.0908203125,
+              "q25": -227.00791931152344,
+              "median": -226.25481414794922,
+              "q75": -224.3907699584961,
+              "max": -219.82904052734375
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 8,
+              "mean": 0.4459907440519699,
+              "std": 0.02834453790685002,
+              "min": 0.390622310964879,
+              "q25": 0.4367290276078899,
+              "median": 0.44243735762571035,
+              "q75": 0.4565662999246839,
+              "max": 0.4911429544272737
+            },
+            "combined_score": {
+              "sample_count": 8,
+              "mean": 0.5359142492550795,
+              "std": 0.06333637983055851,
+              "min": 0.4113962757098508,
+              "q25": 0.5233462789718667,
+              "median": 0.561900581622659,
+              "q75": 0.5760468096331572,
+              "max": 0.5931891839309616
+            }
+          },
+          "rgb_ir": {
+            "sample_count": 17,
+            "anomalous_images": 17,
+            "detection_score": {
+              "sample_count": 17,
+              "mean": 0.6898332448566661,
+              "std": 0.09085475567966442,
+              "min": 0.3821192979812622,
+              "q25": 0.6697250604629517,
+              "median": 0.7221100926399231,
+              "q75": 0.7414623498916626,
+              "max": 0.7695467472076416
+            },
+            "patch_max_score_raw": {
+              "sample_count": 17,
+              "mean": -188.66003238453584,
+              "std": 22.713375117080492,
+              "min": -223.0753173828125,
+              "q25": -209.3314971923828,
+              "median": -185.42092895507812,
+              "q75": -171.720458984375,
+              "max": -152.695068359375
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 17,
+              "mean": 0.7273954639212514,
+              "std": 0.17216113666185232,
+              "min": 0.46653706866720085,
+              "q25": 0.5707114458288381,
+              "median": 0.7519469770850258,
+              "q75": 0.855792771503491,
+              "max": 1.0
+            },
+            "combined_score": {
+              "sample_count": 17,
+              "mean": 0.7086143543889589,
+              "std": 0.11680342063717682,
+              "min": 0.4284208369496754,
+              "q25": 0.6015755455706637,
+              "median": 0.7469676468148676,
+              "q75": 0.7672768288479064,
+              "max": 0.8693796098232269
+            }
+          }
+        },
+        "screw": {
+          "good": {
+            "sample_count": 10,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 10,
+              "mean": 0.7452876687049865,
+              "std": 0.006548277254764034,
+              "min": 0.736754834651947,
+              "q25": 0.7385343313217163,
+              "median": 0.7460300028324127,
+              "q75": 0.750967875123024,
+              "max": 0.7533815503120422
+            },
+            "patch_max_score_raw": {
+              "sample_count": 10,
+              "mean": -122.97580795288086,
+              "std": 10.328973038606325,
+              "min": -135.34896850585938,
+              "q25": -133.1092300415039,
+              "median": -123.2858657836914,
+              "q75": -113.14409828186035,
+              "max": -109.7958984375
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 10,
+              "mean": 0.8591585129497379,
+              "std": 0.0814497831076428,
+              "min": 0.7615891573488134,
+              "q25": 0.7792507594710911,
+              "median": 0.8567135319263628,
+              "q75": 0.9366870936991348,
+              "max": 0.9630895395284436
+            },
+            "combined_score": {
+              "sample_count": 10,
+              "mean": 0.8022230908273622,
+              "std": 0.043932057723687135,
+              "min": 0.749756121519179,
+              "q25": 0.7590372730645245,
+              "median": 0.8013717673793878,
+              "q75": 0.8440669982255287,
+              "max": 0.8582355449202429
+            }
+          },
+          "rgb_only": {
+            "sample_count": 16,
+            "anomalous_images": 16,
+            "detection_score": {
+              "sample_count": 16,
+              "mean": 0.7359789237380028,
+              "std": 0.00811881702606215,
+              "min": 0.7228666543960571,
+              "q25": 0.7290167361497879,
+              "median": 0.7397353649139404,
+              "q75": 0.741968035697937,
+              "max": 0.7468879222869873
+            },
+            "patch_max_score_raw": {
+              "sample_count": 16,
+              "mean": -119.08028507232666,
+              "std": 9.197246244123923,
+              "min": -141.23989868164062,
+              "q25": -122.34383773803711,
+              "median": -117.70879745483398,
+              "q75": -113.26811981201172,
+              "max": -105.1151351928711
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 16,
+              "mean": 0.8898769098829156,
+              "std": 0.07252547847414584,
+              "min": 0.715135847486714,
+              "q25": 0.8641419548405359,
+              "median": 0.9006918639506696,
+              "q75": 0.9357091139238222,
+              "max": 1.0
+            },
+            "combined_score": {
+              "sample_count": 16,
+              "mean": 0.8129279168104593,
+              "std": 0.03523375986761307,
+              "min": 0.7310118848868506,
+              "q25": 0.7979633616965738,
+              "median": 0.8189485053247305,
+              "q75": 0.8396504347762039,
+              "max": 0.8614676594734192
+            }
+          },
+          "ir_only": {
+            "sample_count": 0,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 0
+            },
+            "patch_max_score_raw": {
+              "sample_count": 0
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 0
+            },
+            "combined_score": {
+              "sample_count": 0
+            }
+          },
+          "rgb_ir": {
+            "sample_count": 15,
+            "anomalous_images": 15,
+            "detection_score": {
+              "sample_count": 15,
+              "mean": 0.7417032321294149,
+              "std": 0.003839644217439854,
+              "min": 0.7339275479316711,
+              "q25": 0.7385016083717346,
+              "median": 0.7428239583969116,
+              "q75": 0.7444066107273102,
+              "max": 0.7480288743972778
+            },
+            "patch_max_score_raw": {
+              "sample_count": 15,
+              "mean": -117.37449239095052,
+              "std": 5.009867281885349,
+              "min": -128.93963623046875,
+              "q25": -119.72676086425781,
+              "median": -117.16897583007812,
+              "q75": -114.87451934814453,
+              "max": -109.55413055419922
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 15,
+              "mean": 0.903328048094371,
+              "std": 0.03950563158432793,
+              "min": 0.8121303604039644,
+              "q25": 0.884779083328395,
+              "median": 0.9049486621908083,
+              "q75": 0.923041746769973,
+              "max": 0.9649960157660754
+            },
+            "combined_score": {
+              "sample_count": 15,
+              "mean": 0.822515640111893,
+              "std": 0.019961298622578172,
+              "min": 0.7777349494890915,
+              "q25": 0.8123199001190085,
+              "median": 0.8252583496119447,
+              "q75": 0.8337011713557583,
+              "max": 0.8548295002442015
+            }
+          }
+        }
+      },
+      "detection_only": {
+        "auroc": 0.5196428571428571,
+        "average_precision": 0.7404890688063817
+      }
+    },
+    "per_category": {
+      "plastic_cylinder": {
+        "sample_count": 35,
+        "anomalous_images": 25,
+        "rgb_pixel_sample_count": 27,
+        "image_combined": {
+          "auroc": 0.6,
+          "average_precision": 0.8607746801280467
+        },
+        "image_detection_only": {
+          "auroc": 0.52,
+          "average_precision": 0.817781267354852
+        },
+        "rgb_pixel": {
+          "auroc": 0.9921925996717796,
+          "average_precision": 0.3139482940797719
+        }
+      },
+      "screw": {
+        "sample_count": 41,
+        "anomalous_images": 31,
+        "rgb_pixel_sample_count": 41,
+        "image_combined": {
+          "auroc": 0.5612903225806452,
+          "average_precision": 0.777701828305081
+        },
+        "image_detection_only": {
+          "auroc": 0.2967741935483871,
+          "average_precision": 0.6439480734190929
+        },
+        "rgb_pixel": {
+          "auroc": 0.9876987586884323,
+          "average_precision": 0.11202125115773641
+        }
+      }
+    }
+  },
+  "training_loss": {
+    "selected_epoch": 2.979811,
+    "last_epoch": 20,
+    "last_epoch_mean": 2.763948
+  },
+  "artifacts": {
+    "selected_checkpoint": "mulsen_epoch_009.pth",
+    "selected_checkpoint_sha256": "4d8d9a4639edd5b93b2f28559415aace1c0194ea571b63ac3c5298a19c978087",
+    "selected_checkpoint_size_bytes": 56686515,
+    "checkpoint_binary_tracked": false,
+    "source_evaluation": "development_evaluation.json",
+    "source_evaluation_sha256": "2fab456c92cef0d02c9baf1b0c43d5878b8937f5034c462c061626a0781a9b43",
+    "source_evaluation_size_bytes": 1932545,
+    "source_config": "experiment_config.json",
+    "source_config_sha256": "a708d8ac99a1d54ee8be373326b48e954e043bb32ca52404a0f4adaef811ca10",
+    "source_train_log_sha256": "4101a7fc8e294687a76563a6fd1328a4a605995fa80296a9fc1b7dc87c6e7d38"
+  }
+}

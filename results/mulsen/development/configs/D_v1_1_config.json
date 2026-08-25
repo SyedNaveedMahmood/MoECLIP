@@ -1,0 +1,92 @@
+{
+  "path_policy": "Hyperparameters are exact; only data_root and thermal-stat file are replaced with portable repository placeholders.",
+  "source_config_sha256": "ca0c22f6d8933b4c545e11d69a71e40b9fea14699cbbfcf1cda84c38968b8246",
+  "config": {
+    "protocol_version": "mulsen-rgbt-zsad-v1",
+    "protocol_stage": "development",
+    "train_categories": [
+      "button_cell",
+      "capsule",
+      "cube",
+      "flat_pad",
+      "light",
+      "screen",
+      "spring_pad",
+      "zipper"
+    ],
+    "evaluation_categories": [
+      "plastic_cylinder",
+      "screw"
+    ],
+    "variant": "D",
+    "use_thermal": true,
+    "use_region_routing": true,
+    "data_root": "${MULSEN_DATA_ROOT}",
+    "model_name": "ViT-L-14-336",
+    "img_size": 518,
+    "moe_r": 8,
+    "moe_lora_alpha": 16,
+    "moe_num_experts": 4,
+    "moe_top_k": 2,
+    "moe_layers": [
+      5,
+      11,
+      17,
+      23
+    ],
+    "levels": [
+      6,
+      12,
+      18,
+      24
+    ],
+    "router_init": "normal",
+    "use_fofs": true,
+    "use_paa": true,
+    "use_segment_paa": false,
+    "seg_proj_sharing_strategy": "shared",
+    "relu": false,
+    "image_adapt_weight": 0.1,
+    "thermal_depth": 4,
+    "thermal_width": 256,
+    "region_context_dim": 256,
+    "region_attention_heads": 4,
+    "region_coordinate_bias": 1.0,
+    "region_coordinate_sigma": 0.75,
+    "num_context_experts": 4,
+    "use_global_context": true,
+    "use_thermal_reliability_gate": false,
+    "thermal_aux_lambda": 0.0,
+    "modality_dropout": 0.2,
+    "stable_adapter_norm": true,
+    "adapter_norm_floor": 1.0,
+    "slic_segments": 64,
+    "slic_compactness": 10.0,
+    "augment": true,
+    "thermal_normalization": {
+      "mean": 0.614252555096359,
+      "std": 0.33349515475237973,
+      "sample_count": 705,
+      "pixel_count": 216576000,
+      "file": "results/mulsen/development/thermal_stats_development.json",
+      "sha256": "8159917b95b1592053189b9552cba0c0871848730d6d1fa2193dc868589b7d0d"
+    },
+    "optimizer": "AdamW",
+    "lr": 5e-05,
+    "weight_decay": 0.0,
+    "lr_milestones": [
+      12,
+      16
+    ],
+    "lr_gamma": 0.1,
+    "balance_loss_lambda": 0.01,
+    "etf_loss_lambda": 0.01,
+    "align_loss_lambda": 0.0,
+    "batch_size": 1,
+    "epochs": 20,
+    "workers": 4,
+    "amp": true,
+    "amp_init_scale": 1024.0,
+    "seed": 111
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "protocol_version": "mulsen-rgbt-zsad-v1",
+  "protocol_stage": "development",
+  "source_split": "train-normal-only",
+  "categories": [
+    "button_cell",
+    "capsule",
+    "cube",
+    "flat_pad",
+    "light",
+    "screen",
+    "spring_pad",
+    "zipper"
+  ],
+  "sample_count": 705,
+  "pixel_count": 216576000,
+  "mean": 0.614252555096359,
+  "std": 0.33349515475237973,
+  "decoded_storage": "uint8 RGB payload averaged to one channel, divided by 255",
+  "resize_policy": "native 640x480 pixels; no resize and no per-image min/max"
+}

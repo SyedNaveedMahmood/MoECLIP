@@ -341,7 +341,8 @@ spring_pad, zipper`
 ## Reproducible smoke commands
 
 ```powershell
-$Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
+# Run from the repository root. Override this if Conda is installed elsewhere.
+$Conda = Join-Path $env:USERPROFILE "miniconda3\Scripts\conda.exe"
 
 & $Conda run --no-capture-output -n moeclip python -m unittest `
   tests.test_mulsen_ad `
@@ -403,8 +404,8 @@ They are retained for reproducibility; existing output directories must not be
 overwritten.
 
 ```powershell
-Set-Location "C:\Users\user7\Desktop\moeclip"
-$Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
+# Run from the repository root. Override this if Conda is installed elsewhere.
+$Conda = Join-Path $env:USERPROFILE "miniconda3\Scripts\conda.exe"
 $DataRoot = "data\MulSenAD_official\MulSen_AD"
 $ThermalStats = "data\MulSenAD_official\thermal_stats_development.json"
 $Common = @(
@@ -484,17 +485,17 @@ $Common = @(
 These commands generated the local A/B/D checkpoints and development reports
 described below. No final-stage model has been fit or evaluated.
 
-## Planned A-corrected versus D-v1.1 development comparison
+## Completed A-corrected versus D-v1.1 development comparison
 
-These commands are approved for the next **user-run** comparison but have not
-been executed. They retain the original seed-111 optimization, scheduling,
-epoch budget, category split, and checkpoint-selection rule. The A-corrected
-and D-v1.1 runs both use corrected RGB segmentation supervision. Only D-v1.1
-adds local+global patch-router context and bounded layer-wise context scales.
+These are the commands used for the completed comparison. They retain the
+original seed-111 optimization, scheduling, epoch ceiling, category split, and
+checkpoint-selection rule. The A-corrected and D-v1.1 runs both use corrected
+RGB segmentation supervision. Only D-v1.1 adds local+global patch-router context
+and bounded layer-wise context scales.
 
 ```powershell
-Set-Location "C:\Users\user7\Desktop\moeclip"
-$Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
+# Run from the repository root. Override this if Conda is installed elsewhere.
+$Conda = Join-Path $env:USERPROFILE "miniconda3\Scripts\conda.exe"
 $DataRoot = "data\MulSenAD_official\MulSen_AD"
 $ThermalStats = "data\MulSenAD_official\thermal_stats_development.json"
 $RunACorrected = "ckpt\mulsen_dev_A_corrected_seed111"
@@ -738,35 +739,110 @@ predeclared D-v1.1 attribution boundary.
   effects, and generalization claims remain unknown. The table above is a single
   development seed and must not be described as variance or final ZSAD evidence.
 
-## Known limitations and next gates
+## DEVELOPMENT RESULTS — corrected frozen comparison
 
-- Sequential RGB/IR acquisition is not calibrated. Cross-attention may still
-  learn spurious correspondences; attention maps and routing distributions must
-  be inspected.
-- IR localization cannot be scored by comparing an unregistered IR mask directly
-  with an RGB patch map.
-- Development thermal mean/std is now fixed from only the eight development
-  training categories. Final-refit statistics remain intentionally uncomputed;
-  they must be recomputed from normal training images in final `D_s` only.
-- The final unseen-category side of the primary split has not been tested and
-  must remain locked. Development results have now been observed, but the five
-  final unseen categories remain untouched.
-- V1 supplies zero router context to CLS, but the current detection feature is
-  not a direct CLS readout: it is produced by `det_proj` followed by mean pooling
-  of adapted RGB patch features. CLS conditioning is therefore not the main
-  v1.1 intervention.
-- **Hypothesis for v1.1, not a result:** combining each local region context with
-  a count-weighted global multimodal region summary can make image-wide evidence
-  available to every RGB patch router, while independently bounded layer scales
-  can prevent one depth from dominating. Experts still adapt RGB CLIP tokens
-  only, so the representation and text-scoring pathway remain in RGB CLIP space.
-- **Future experiments, not results:** first compare A-corrected against D-v1.1
-  with the same seed, optimizer, scheduler, epoch budget, categories, and
-  historical selection metric. Keep reliability, thermal auxiliary loss,
-  segment-aware PAA, and alignment off. Only if D-v1.1 clears the development
-  gate should thermal auxiliary supervision (`lambda=0.05`) and reliability be
-  tested separately; E remains last.
-- The next decision gate is the user-run A-corrected/D-v1.1 development
-  comparison plus subgroup, alpha, attention-entropy, routing-ratio, and
-  qualitative diagnostics. Do not touch final unseen categories before the
-  architecture and epoch budget are frozen.
+A-corrected and D-v1.1 completed the controlled seed-111 development gate. Both
+used the same eight training categories, two held-out development categories,
+optimizer, scheduler, 20-epoch ceiling, corrected modality-specific segmentation
+policy, and predeclared selector. Their configs differ only in the intended
+thermal/region/global-context fields. This is one seed and not an estimate of
+variance or statistical significance.
+
+| Model | Selected epoch | Selection | Combined AUROC | Combined AP | Detection AUROC | Detection AP | RGB pixel AUROC | RGB pixel AP |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| A-corrected | 9 | 0.785295 | 0.580645 | 0.819238 | 0.408387 | 0.730865 | 0.989946 | 0.212985 |
+| D-v1.1 | 3 | 0.875575 | 0.768387 | 0.912996 | 0.573806 | 0.806293 | 0.982763 | 0.152964 |
+
+The macro detection AP values are the arithmetic mean of the already-recorded
+per-category detection AP values; the original evaluation JSON schema omitted
+that redundant macro field. A's epoch-9/epoch-20 training losses are
+2.979811/2.763948; D-v1.1's epoch-3/epoch-20 losses are 3.304547/2.588211.
+
+Selected checkpoint SHA-256:
+
+- A-corrected epoch 9:
+  `4d8d9a4639edd5b93b2f28559415aace1c0194ea571b63ac3c5298a19c978087`.
+- D-v1.1 epoch 3:
+  `c0b8ff4651bbbe57ce12f7d655e23c97238db26d8f8fcdbf015d3c5c05bf779c`.
+
+Evaluation JSON SHA-256:
+
+- A-corrected:
+  `2fab456c92cef0d02c9baf1b0c43d5878b8937f5034c462c061626a0781a9b43`.
+- D-v1.1:
+  `7a2f66e9993fedb6f72c083e0ec8104468f68d4eacbdbd6b334aa38ce274b93c`.
+
+D-v1.1 improves development image ranking but reduces RGB pixel AUROC/AP. The
+subgroup score distributions do not justify claiming robust IR-only detection:
+mean combined IR-only scores remain below good scores (A 0.536 vs 0.696; D-v1.1
+0.408 vs 0.489). D-v1.1 narrows that gap, but the subgroup has eight samples.
+
+The selected D-v1.1 checkpoint has learned alphas 0.199965, 0.200566, 0.200504,
+and 0.200118 at blocks 5/11/17/23. Patch context/base absolute-logit ratios are
+0.078, 0.420, 0.597, and 0.067, changing Top-1 routing for 6.1%, 28.7%, 19.5%,
+and 2.1% of patches. Effective expert counts are 3.994–4.000 and CLS context
+influence is zero. Mean normalized thermal-attention entropy is 0.960, 0.941,
+0.903, and 0.950, indicating broad attention. These diagnostics establish an
+active, non-collapsed router, not a causal explanation for the metric change.
+
+Compact source configs, metrics, subgroup summaries, hashes, routing diagnostics,
+thermal statistics, and deterministic qualitative samples are tracked under
+`results/mulsen/development/`.
+
+## FINAL FROZEN PROTOCOL
+
+**The architecture was frozen before evaluating the five final unseen MulSen-AD
+categories.** D-v1.1 is frozen regardless of whether it beats A on a later
+metric. No architecture, prompt, score, normalization policy, or selector may be
+changed after the freeze tag.
+
+Frozen D-v1.1 boundary:
+
+1. RGB CLIP patch tokens are the only expert inputs and adapted representation.
+2. RGB SLIC regions query the full thermal grid and provide local context.
+3. A count-weighted global multimodal context is added to every patch router.
+4. Four independently bounded `sigmoid(a_l)` context scales are enabled.
+5. RGB-specific segmentation supervision and `label_rgbt` classification remain
+   as defined above.
+6. Standard PAA and CLIP/text scoring remain enabled.
+7. Segment-aware PAA, reliability gating, thermal auxiliary classification,
+   alignment loss, and CLS conditioning remain disabled.
+
+Development fixes the final training budgets before `D_u` evaluation:
+
+- A-corrected final refit: exactly 9 epochs.
+- D-v1.1 final refit: exactly 3 epochs.
+
+Final normalization must use only normal train images from the ten `D_s`
+categories. Each fixed checkpoint is evaluated exactly once on `D_u`; no epoch
+scan, threshold tuning, prompt change, or post-result architecture change is
+allowed.
+
+The early sensor/alignment audit sampled RGB/IR pixels from all 15 categories,
+including categories later assigned to `D_u`, without opening GT masks or
+producing model scores. No `D_u` data entered fitting, normalization, development
+evaluation, or selection. Accordingly, the defensible statement is “no `D_u`
+performance feedback or fitting before freeze,” not that future `D_u` pixels
+were literally never inspected during dataset characterization.
+
+## LIMITATIONS
+
+- Sequential RGB/IR acquisition is uncalibrated; cross-attention can learn
+  spurious correspondences.
+- IR localization cannot be scored by comparing an unregistered IR mask with an
+  RGB patch map.
+- Development evidence is one seed, two categories, and one split.
+- The retained RGB/text scoring path has no direct thermal anomaly score.
+- Attention is high-entropy and qualitative aggregation is not a causal
+  localization explanation.
+- The checkpoint format records full config and RNG/optimizer/scheduler state but
+  did not embed a Git commit; the audited run source commit is recorded
+  separately in the tracked summaries.
+
+## FUTURE WORK
+
+Thermal reliability gating, thermal auxiliary supervision, segment-aware PAA,
+learned registration, improved multimodal image scoring, multi-seed evaluation,
+and multi-fold category splits remain implemented ideas or hypotheses. They are
+outside the frozen primary experiment and will not be run before the final
+A-corrected versus D-v1.1 comparison is complete.
