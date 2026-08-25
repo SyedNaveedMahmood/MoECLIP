@@ -1,8 +1,9 @@
 # Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
 
-Status: dataset audit/loader, end-to-end RGB-only-expert model, locked protocol,
-and dedicated training/checkpoint path are complete in offline smoke tests.
-Thermal statistics, real ViT-L/14 smoke, training, and evaluation have not run.
+Status: the audited MulSen-AD loader, locked protocol, RGB-only-expert RGB-T
+model, thermal statistics, real ViT-L/14 smoke tests, and A/B/D seed-111
+development runs are complete. The final held-out categories remain sealed and
+unevaluated.
 
 Last updated: 2026-08-25
 
@@ -16,7 +17,9 @@ normal/anomalous text-scoring pathway?
 
 ### Repository baseline
 
-- Local `main` is synchronized with `origin/main` at commit `0e4e726`.
+- The audited v1 implementation and A/B/D development evidence are preserved
+  through commit `39d9414`; the documentation-corrected save point is identified
+  by the annotated tag `mulsen-v1-dev-audit`.
 - The released-code reproduction and its paper/code differences are recorded in
   `RESULTS_SUMMARY.md`. In particular, the released RGB training path keeps the
   model in evaluation mode, so ETF, router balance loss, and LoRA dropout were not
