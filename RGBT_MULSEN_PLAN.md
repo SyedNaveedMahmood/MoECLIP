@@ -252,6 +252,10 @@ spring_pad, zipper`
   user-specific absolute data root replaced by a repository-relative path.
 - `tests/test_mulsen_protocol.py`: category disjointness/completeness, selection
   rules, geometry-mode, and prompt-coverage tests.
+- `tools/compute_mulsen_thermal_stats.py` and `dataset/mulsen_stats.py`: a
+  user-run streaming normal-IR statistic command plus strict stage/category
+  metadata validation. This prevents a development run from loading statistics
+  contaminated by validation or unseen categories.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -276,6 +280,12 @@ $Py = (Get-Command python).Source
   --sample-count 16 `
   --seed 111 `
   --max-shift 32
+
+# User-run preprocessing; choose the stage being trained.
+& $Py tools\compute_mulsen_thermal_stats.py `
+  --data-root "data\MulSenAD_official\MulSen_AD" `
+  --protocol-stage development `
+  --output "data\MulSenAD_official\thermal_stats_development.json"
 ```
 
 No training or evaluation command is defined yet.
@@ -333,8 +343,10 @@ No training or evaluation command is defined yet.
   be inspected.
 - IR localization cannot be scored by comparing an unregistered IR mask directly
   with an RGB patch map.
-- Thermal mean/std has not been estimated. It must use only final `D_s` normal
-  training images and be saved with the experiment config.
+- Thermal mean/std has not been estimated. It must use only the active stage's
+  training categories (development-train for selection, final `D_s` for refit)
+  and be saved with the experiment config. The command is implemented but has
+  deliberately not been run by the agent.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
 - Next implementation gate: MulSen-AD protocol/CLI/checkpoint integration,
