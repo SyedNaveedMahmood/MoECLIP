@@ -206,7 +206,7 @@ class RegionThermalAttention(nn.Module):
     def __init__(
         self,
         rgb_dim: int,
-        thermal_dim: int,
+        thermal_dim: Optional[int],
         attention_dim: int = 256,
         num_heads: int = 4,
         coordinate_bias_strength: float = 1.0,
@@ -328,15 +328,17 @@ class RegionContextEncoder(nn.Module):
         self.context_dim = int(context_dim)
         self.rgb_norm = nn.LayerNorm(rgb_dim)
         self.rgb_projection = nn.Linear(rgb_dim, self.context_dim, bias=False)
-        self.thermal_attention = RegionThermalAttention(
-            rgb_dim=rgb_dim,
-            thermal_dim=thermal_dim,
-            attention_dim=self.context_dim,
-            num_heads=num_heads,
-            coordinate_bias_strength=coordinate_bias_strength,
-            coordinate_bias_sigma=coordinate_bias_sigma,
-            dropout=dropout,
-        )
+        self.thermal_attention = None
+        if thermal_dim is not None:
+            self.thermal_attention = RegionThermalAttention(
+                rgb_dim=rgb_dim,
+                thermal_dim=thermal_dim,
+                attention_dim=self.context_dim,
+                num_heads=num_heads,
+                coordinate_bias_strength=coordinate_bias_strength,
+                coordinate_bias_sigma=coordinate_bias_sigma,
+                dropout=dropout,
+            )
         self.context_norm = nn.LayerNorm(self.context_dim * 4)
         self.context_mlp = nn.Sequential(
             nn.Linear(self.context_dim * 4, self.context_dim),
@@ -369,6 +371,8 @@ class RegionContextEncoder(nn.Module):
         else:
             if thermal_grid_size is None:
                 raise ValueError("thermal_grid_size is required with thermal tokens")
+            if self.thermal_attention is None:
+                raise ValueError("this region context encoder has no thermal branch")
             projected_thermal, attention = self.thermal_attention(
                 pool.region_features,
                 pool.region_coordinates,

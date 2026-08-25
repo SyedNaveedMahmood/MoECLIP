@@ -1,8 +1,14 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from .adapter_modules import SimpleAdapter, SimpleProj, SimpleLoRA, ConvAdapterProj
+from .adapter_modules import SimpleProj, ConvAdapterProj
 from .config import LoraConfig, MixLoraConfig
+from .region_context import (
+    RegionContextEncoder,
+    identity_patch_regions,
+    pixel_regions_to_patch_regions,
+)
+from .thermal_branch import ThermalEncoder, ThermalEncoderOutput
 from typing import Dict, Optional, Tuple, List
 import math
 
@@ -115,9 +121,6 @@ class BaseIndependentMoE(nn.Module):
         d_model: int,
         config,
         use_fofs: bool = True,
-        num_shared_experts: int = 0,
-        num_thermal_experts: int = 0,
-        use_cond: bool = False,
         router_context_dim: Optional[int] = None,
         num_context_experts: Optional[int] = None,
     ):
@@ -137,24 +140,6 @@ class BaseIndependentMoE(nn.Module):
             expert = SimpleLoraExpert(d_model, d_model, config, weight=(lora_A_weight, None))
             self.experts.append(expert)
         
-        # --- MoE-TwinCLIP: modality-aware expert partitioning ---
-        # experts [0, n_rgb)                 -> rgb-private
-        # experts [n_rgb, n_rgb+n_shared)    -> shared (both modalities)
-        # experts [n_rgb+n_shared, K)        -> thermal-private
-        n_total = config.num_experts_
-        n_shared = min(max(0, num_shared_experts), n_total)
-        n_therm = min(max(0, num_thermal_experts), max(0, n_total - n_shared - 1))
-        n_rgb = n_total - n_shared - n_therm
-        self.expert_groups = {
-            "rgb": list(range(n_rgb)) + list(range(n_rgb, n_rgb + n_shared)),
-            "thermal": list(range(n_rgb + n_shared, n_total))
-            + list(range(n_rgb, n_rgb + n_shared)),
-        }
-        self.use_cond = use_cond
-        if use_cond:
-            # cross-modal conditioning: router sees [own-stream token ; other-stream token]
-            self.cond_proj = nn.Linear(d_model * 2, d_model, bias=False)
-
         # V1 region-guided routing adds a context-dependent *logit residual*.
         # Experts still receive only ``hidden_states`` below.  Applying context
         # to all experts is the default; a fixed subset is available solely as
@@ -222,7 +207,6 @@ class BaseIndependentMoE(nn.Module):
     def compute_router_logits(
         self,
         hidden_states: torch.Tensor,
-        cond: Optional[torch.Tensor] = None,
         router_context: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Compute base RGB logits plus an optional region-context residual."""
@@ -233,16 +217,7 @@ class BaseIndependentMoE(nn.Module):
                 f"{hidden_states.shape[-1]}"
             )
         hidden_states_flat = hidden_states.reshape(-1, self.d_model)
-        if self.use_cond and cond is not None:
-            if cond.shape != hidden_states.shape:
-                raise ValueError("legacy conditioning must match hidden-state shape")
-            cond_flat = cond.reshape(-1, self.d_model).to(hidden_states_flat.dtype)
-            router_in = self.cond_proj(
-                torch.cat([hidden_states_flat, cond_flat], dim=-1)
-            )
-        else:
-            router_in = hidden_states_flat
-        router_logits = self.gate(router_in)
+        router_logits = self.gate(hidden_states_flat)
 
         if router_context is not None:
             if not hasattr(self, "context_gate"):
@@ -278,8 +253,6 @@ class BaseIndependentMoE(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        cond: Optional[torch.Tensor] = None,
-        expert_group: Optional[str] = None,
         router_context: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -293,12 +266,8 @@ class BaseIndependentMoE(nn.Module):
         hidden_states_flat = hidden_states.reshape(-1, hidden_dim)
 
         router_logits = self.compute_router_logits(
-            hidden_states, cond=cond, router_context=router_context
+            hidden_states, router_context=router_context
         )
-        if expert_group is not None:
-            group_mask = torch.full_like(router_logits, float("-inf"))
-            group_mask[:, self.expert_groups[expert_group]] = 0.0
-            router_logits = router_logits + group_mask
 
         router_probs = F.softmax(router_logits, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(router_probs, self.config.top_k_, dim=-1)
@@ -365,11 +334,18 @@ class MoECLIP(nn.Module):
         use_fofs: bool = True,
         moe_layers: Optional[List[int]] = None,
         relu: bool = True,
-        # --- MoE-TwinCLIP options ---
+        # --- Region-guided RGB-thermal routing options ---
         use_thermal: bool = False,
+        use_region_routing: bool = False,
         thermal_depth: int = 4,
-        num_shared_experts: int = 1,
-        modality_dropout: float = 0.3,
+        thermal_width: int = 256,
+        region_context_dim: int = 256,
+        region_attention_heads: int = 4,
+        region_coordinate_bias: float = 1.0,
+        region_coordinate_sigma: float = 0.75,
+        num_context_experts: Optional[int] = None,
+        num_shared_experts: Optional[int] = None,
+        modality_dropout: float = 0.2,
         **kwargs,
     ):
         super().__init__()
@@ -378,6 +354,33 @@ class MoECLIP(nn.Module):
         self.i_w = image_adapt_weight
         self.levels = levels
         self.moe_layers = moe_layers if moe_layers is not None else [5, 11, 17, 23]
+        transformer_depth = len(self.image_encoder.transformer.resblocks)
+        if not self.moe_layers or len(set(self.moe_layers)) != len(self.moe_layers):
+            raise ValueError("moe_layers must be a non-empty list of unique indices")
+        if any(index < 0 or index >= transformer_depth for index in self.moe_layers):
+            raise ValueError(
+                f"moe_layers must be within the {transformer_depth}-block visual encoder"
+            )
+        if any(level <= 0 or level > transformer_depth for level in self.levels):
+            raise ValueError(
+                f"levels must be within 1..{transformer_depth}"
+            )
+        self.use_thermal = bool(use_thermal)
+        self.use_region_routing = bool(use_region_routing)
+        self.use_context_routing = self.use_thermal or self.use_region_routing
+        if not 0.0 <= modality_dropout <= 1.0:
+            raise ValueError("modality_dropout must be in [0,1]")
+        self.modality_dropout = float(modality_dropout)
+        if num_shared_experts is not None:
+            if (
+                num_context_experts is not None
+                and num_context_experts != num_shared_experts
+            ):
+                raise ValueError(
+                    "num_shared_experts is a legacy alias and conflicts with "
+                    "num_context_experts"
+                )
+            num_context_experts = num_shared_experts
         
         self.use_paa = use_paa
         
@@ -395,7 +398,12 @@ class MoECLIP(nn.Module):
         else:
             num_seg_projs = len(levels)
         
-        d_model = 1024
+        d_model = int(self.image_encoder.conv1.out_channels)
+        patch_stride = self.image_encoder.conv1.stride
+        patch_kernel = self.image_encoder.conv1.kernel_size
+        if patch_stride[0] != patch_stride[1] or patch_kernel != patch_stride:
+            raise ValueError("region routing requires a square non-overlapping patch stem")
+        self.visual_patch_size = int(patch_stride[0])
         
         moe_config = MixLoraConfig.from_config(
             {
@@ -416,57 +424,55 @@ class MoECLIP(nn.Module):
         )
 
 
-        n_therm_experts = 1 if use_thermal else 0
         moe_adapters = nn.ModuleList([
             BaseIndependentMoE(
                 d_model=d_model,
                 config=moe_config,
                 use_fofs=use_fofs,
-                num_shared_experts=num_shared_experts if use_thermal else 0,
-                num_thermal_experts=n_therm_experts,
-                use_cond=use_thermal,
+                router_context_dim=(
+                    region_context_dim if self.use_context_routing else None
+                ),
+                num_context_experts=num_context_experts,
             )
             for _ in self.moe_layers
         ])
 
         seg_proj = nn.ModuleList(
-            [SimpleProj(1024, 768, relu) for _ in range(num_seg_projs)]
+            [SimpleProj(d_model, 768, relu) for _ in range(num_seg_projs)]
         )
         
         
-        det_proj = ConvAdapterProj(1024, 768)
-        self.image_adapter = nn.ModuleDict(
-            {
-                "seg_proj": seg_proj,
-                "det_proj": det_proj,
-                "moe_adapters": moe_adapters,
-            }
-        )
+        det_proj = ConvAdapterProj(d_model, 768)
+        image_adapter = {
+            "seg_proj": seg_proj,
+            "det_proj": det_proj,
+            "moe_adapters": moe_adapters,
+        }
+        if self.use_context_routing:
+            image_adapter["region_contexts"] = nn.ModuleList(
+                RegionContextEncoder(
+                    rgb_dim=d_model,
+                    thermal_dim=(thermal_width if self.use_thermal else None),
+                    context_dim=region_context_dim,
+                    num_heads=region_attention_heads,
+                    coordinate_bias_strength=region_coordinate_bias,
+                    coordinate_bias_sigma=region_coordinate_sigma,
+                )
+                for _ in self.moe_layers
+            )
+        self.image_adapter = nn.ModuleDict(image_adapter)
         self.text_adapter = nn.ModuleList(
             [SimpleProj(768, 768, relu=True)]
         )
 
-        # --- MoE-TwinCLIP: thermal branch + readout + fusion gates ---
-        self.use_thermal = use_thermal
-        self.modality_dropout = modality_dropout
-        if use_thermal:
-            from .thermal_branch import ThermalTransformer
-
-            self.thermal_branch = ThermalTransformer(
-                width=d_model, depth=thermal_depth, heads=8, mlp_ratio=2.0, patch_size=14
+        if self.use_thermal:
+            self.thermal_branch = ThermalEncoder(
+                width=thermal_width,
+                output_dim=thermal_width,
+                depth=thermal_depth,
+                patch_size=self.visual_patch_size,
             )
-            thermal_seg_proj = nn.ModuleList(
-                [SimpleProj(1024, 768, relu) for _ in range(num_seg_projs)]
-            )
-            thermal_det_proj = ConvAdapterProj(1024, 768)
-            self.thermal_adapter = nn.ModuleDict(
-                {"seg_proj": thermal_seg_proj, "det_proj": thermal_det_proj}
-            )
-            # fusion gates (init ~ -2 -> sigmoid ~= 0.12 -> mostly RGB at start)
-            self.seg_gate_logits = nn.Parameter(torch.full((num_seg_projs,), -2.0))
-            self.det_gate = nn.Sequential(
-                nn.Linear(768 * 2, 256), nn.GELU(), nn.Linear(256, 1)
-            )
+        self.last_thermal_available = None
         
     @staticmethod
     def _gaussian_kernel(size: int, sigma: float = 2.0) -> torch.Tensor:
@@ -530,95 +536,175 @@ class MoECLIP(nn.Module):
         else:
             raise ValueError("modality must be visual")
 
-    def forward(self, x, thermal=None, return_align=False):
-        """Dispatch: thermal=None -> original MoECLIP path (unchanged behavior)."""
-        if not getattr(self, "use_thermal", False) or thermal is None:
-            seg_tokens, det_token, aux_loss, special_loss = self._forward_rgb(x)
-            if return_align:
-                return seg_tokens, det_token, aux_loss, special_loss, None
-            return seg_tokens, det_token, aux_loss, special_loss
-        return self._forward_rgb_thermal(x, thermal, return_align)
+    def train(self, mode: bool = True):
+        """Train adapters while keeping the frozen CLIP towers deterministic."""
 
-    def _forward_rgb_thermal(self, x, thermal, return_align=False):
-        device = x.device
+        super().train(mode)
+        self.clipmodel.eval()
+        return self
 
-        # modality dropout: occasionally train RGB-only for graceful degradation
-        use_t = True
-        if (
-            self.training
-            and self.modality_dropout > 0
-            and torch.rand(1).item() < self.modality_dropout
-        ):
-            use_t = False
-            thermal = torch.zeros_like(x)
+    def forward(
+        self,
+        x,
+        thermal=None,
+        region_map=None,
+        return_align=False,
+    ):
+        """Run RGB MoECLIP with optional region/thermal router conditioning.
 
-        # Interleaved execution: the thermal branch advances one block right
-        # before each CLIP MoE layer, so every MoE-updated thermal tap feeds
-        # all subsequent thermal computation (nothing is discarded).
-        self.thermal_branch.reset_step()
-        t_state = self.thermal_branch.embed(thermal.to(device))
+        Thermal tensors only affect router context.  Segmentation and detection
+        outputs are always derived from adapted RGB CLIP tokens.
+        """
 
-        # ---- RGB stream preamble (identical to _forward_rgb) ----
-        x = self.image_encoder.conv1(x)
-        x = x.reshape(x.shape[0], x.shape[1], -1)
-        x = x.permute(0, 2, 1)
+        if self.use_context_routing:
+            outputs = self._forward_conditioned(x, thermal, region_map)
+        else:
+            outputs = self._forward_rgb(x)
+        if return_align:
+            return (*outputs, None)
+        return outputs
+
+    def _sample_thermal_availability(
+        self, thermal: torch.Tensor
+    ) -> torch.Tensor:
+        available = torch.ones(
+            thermal.shape[0], dtype=torch.bool, device=thermal.device
+        )
+        conditioning_is_training = self.image_adapter["region_contexts"].training
+        if conditioning_is_training and self.modality_dropout > 0.0:
+            available = torch.rand(
+                thermal.shape[0], device=thermal.device
+            ) >= self.modality_dropout
+        self.last_thermal_available = available.detach()
+        return available
+
+    @staticmethod
+    def _thermal_tap(
+        output: ThermalEncoderOutput,
+        adapter_index: int,
+        adapter_count: int,
+    ) -> torch.Tensor:
+        if adapter_count == 1:
+            tap_index = len(output.taps) - 1
+        else:
+            tap_index = round(
+                adapter_index * (len(output.taps) - 1) / (adapter_count - 1)
+            )
+        return output.taps[tap_index]
+
+    def _forward_conditioned(self, image, thermal, region_map):
+        batch_size = image.shape[0]
+        thermal_output = None
+        thermal_available = None
+        if self.use_thermal and thermal is not None:
+            if thermal.shape[0] != batch_size:
+                raise ValueError("RGB and thermal batch sizes differ")
+            thermal = thermal.to(image.device)
+            thermal_available = self._sample_thermal_availability(thermal)
+            masked_thermal = thermal * thermal_available.to(
+                dtype=thermal.dtype
+            ).view(-1, 1, 1, 1)
+            thermal_output = self.thermal_branch(masked_thermal)
+        elif self.use_thermal:
+            self.last_thermal_available = torch.zeros(
+                batch_size, dtype=torch.bool, device=image.device
+            )
+
+        x = self.image_encoder.conv1(image)
+        rgb_grid_size = (int(x.shape[-2]), int(x.shape[-1]))
+        patch_count = rgb_grid_size[0] * rgb_grid_size[1]
+        if self.use_region_routing:
+            if region_map is None:
+                raise ValueError(
+                    "region_map is required when use_region_routing=True"
+                )
+            if region_map.shape[0] != batch_size:
+                raise ValueError("RGB and region-map batch sizes differ")
+            patch_region_ids = pixel_regions_to_patch_regions(
+                region_map.to(image.device), rgb_grid_size
+            )
+        else:
+            patch_region_ids = identity_patch_regions(
+                batch_size, rgb_grid_size, device=image.device
+            )
+
+        x = x.reshape(batch_size, x.shape[1], patch_count).permute(0, 2, 1)
         x = torch.cat(
             [
                 self.image_encoder.class_embedding.to(x.dtype)
                 + torch.zeros(
-                    x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=device
+                    batch_size, 1, x.shape[-1], dtype=x.dtype, device=x.device
                 ),
                 x,
             ],
             dim=1,
         )
+        if self.image_encoder.positional_embedding.shape[0] != patch_count + 1:
+            raise ValueError(
+                "visual positional embedding does not match the current patch grid"
+            )
         x = x + self.image_encoder.positional_embedding.to(x.dtype)
+        if self.image_encoder.patch_dropout.training:
+            raise RuntimeError(
+                "frozen CLIP PatchDropout must remain in eval mode for region routing"
+            )
         x = self.image_encoder.patch_dropout(x)
-        x = self.image_encoder.ln_pre(x)
-        x = x.permute(1, 0, 2)
+        if x.shape[1] != patch_count + 1:
+            raise RuntimeError("PatchDropout changed the region-aligned token layout")
+        x = self.image_encoder.ln_pre(x).permute(1, 0, 2)
 
         tokens = []
-        total_load_balance_loss = torch.tensor(0.0, device=device)
-        total_etf_loss = torch.tensor(0.0, device=device)
-
-        for i in range(24):
-            x, attn, _ = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
-
-            if i in self.moe_layers:
-                t_j = self.thermal_branch.step(t_state)
-                moe_idx = self.moe_layers.index(i)
-                moe = self.image_adapter["moe_adapters"][moe_idx]
-
-                # cross-modal conditioned routing with expert-group masking;
-                # both streams share the same expert weights.
-                moe_out_r, lb_r, eo_r, _ = moe(x, cond=t_j, expert_group="rgb")
-                moe_out_t, lb_t, eo_t, _ = moe(t_j, cond=x, expert_group="thermal")
-
-                if eo_r is not None:
-                    total_etf_loss += etf_loss(eo_r)
-                if eo_t is not None:
-                    total_etf_loss += etf_loss(eo_t)
-
-                moe_out_r_n = moe_out_r * x.norm(dim=-1, keepdim=True) / (
-                    moe_out_r.norm(dim=-1, keepdim=True) + 1e-6
+        total_load_balance_loss = x.new_zeros(())
+        total_etf_loss = x.new_zeros(())
+        adapter_count = len(self.moe_layers)
+        for block_index, block in enumerate(
+            self.image_encoder.transformer.resblocks
+        ):
+            x, _, _ = block(x, attn_mask=None)
+            if block_index in self.moe_layers:
+                adapter_index = self.moe_layers.index(block_index)
+                thermal_tokens = None
+                thermal_grid_size = None
+                if thermal_output is not None:
+                    thermal_tokens = self._thermal_tap(
+                        thermal_output, adapter_index, adapter_count
+                    )
+                    thermal_grid_size = thermal_output.grid_size
+                context_output = self.image_adapter["region_contexts"][
+                    adapter_index
+                ](
+                    x[1:].permute(1, 0, 2),
+                    patch_region_ids,
+                    rgb_grid_size,
+                    thermal_tokens,
+                    thermal_grid_size,
+                    thermal_available,
                 )
-                moe_out_t_n = moe_out_t * t_j.norm(dim=-1, keepdim=True) / (
-                    moe_out_t.norm(dim=-1, keepdim=True) + 1e-6
+                class_context = context_output.patch_context.new_zeros(
+                    batch_size, 1, context_output.patch_context.shape[-1]
                 )
-                x = self.i_w * moe_out_r_n + (1 - self.i_w) * x
-                t_state = self.i_w * moe_out_t_n + (1 - self.i_w) * t_j
-
-                total_load_balance_loss += lb_r + lb_t
-
-            if i + 1 in self.levels:
+                router_context = torch.cat(
+                    (class_context, context_output.patch_context), dim=1
+                ).permute(1, 0, 2)
+                moe_output, moe_loss, expert_outputs, _ = self.image_adapter[
+                    "moe_adapters"
+                ][adapter_index](x, router_context=router_context)
+                if expert_outputs is not None:
+                    total_etf_loss = total_etf_loss + etf_loss(expert_outputs)
+                moe_output = (
+                    moe_output
+                    * x.norm(dim=-1, keepdim=True)
+                    / (moe_output.norm(dim=-1, keepdim=True) + 1e-6)
+                )
+                x = self.i_w * moe_output + (1.0 - self.i_w) * x
+                total_load_balance_loss = total_load_balance_loss + moe_loss
+            if block_index + 1 in self.levels:
                 tokens.append(x)
 
         if self.use_paa:
             tokens = self._aggregate_neighbors(tokens)
-
-        return self._fuse_readouts(
-            x, tokens, t_state, use_t, total_load_balance_loss, total_etf_loss,
-            return_align,
+        return self._readout_rgb(
+            tokens, total_load_balance_loss, total_etf_loss
         )
 
     def _forward_rgb(self, x):
@@ -644,11 +730,11 @@ class MoECLIP(nn.Module):
         x = x.permute(1, 0, 2)
         
         tokens = []
-        total_load_balance_loss = torch.tensor(0.0, device=x.device)
-        total_etf_loss = torch.tensor(0.0, device=x.device)
+        total_load_balance_loss = x.new_zeros(())
+        total_etf_loss = x.new_zeros(())
 
-        for i in range(24):
-            x, attn, _ = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+        for i, block in enumerate(self.image_encoder.transformer.resblocks):
+            x, attn, _ = block(x, attn_mask=None)
             
             if i in self.moe_layers:
                 moe_idx = self.moe_layers.index(i)
@@ -656,7 +742,7 @@ class MoECLIP(nn.Module):
                 moe_output, moe_lb_loss, all_expert_outputs, selected_experts = \
                     self.image_adapter["moe_adapters"][moe_idx](x)
                 
-                if self.training and all_expert_outputs is not None:
+                if all_expert_outputs is not None:
                     moe_etf_l = etf_loss(all_expert_outputs)
                     total_etf_loss += moe_etf_l
                 moe_output_normalized = (
@@ -676,7 +762,16 @@ class MoECLIP(nn.Module):
         if self.use_paa:
             tokens = self._aggregate_neighbors(tokens)
 
-        x = x.permute(1, 0, 2)
+        return self._readout_rgb(
+            tokens, total_load_balance_loss, total_etf_loss
+        )
+
+    def _readout_rgb(
+        self,
+        tokens,
+        total_load_balance_loss,
+        total_etf_loss,
+    ):
         tokens = [t.permute(1, 0, 2) for t in tokens]
         tokens = [self.image_encoder.ln_post(t) for t in tokens]
         tokens = [t[:, 1:, :] for t in tokens]
@@ -695,82 +790,12 @@ class MoECLIP(nn.Module):
         det_token = self.image_adapter["det_proj"](tokens[-3])
         det_token = F.normalize(det_token, dim=-1).mean(1)
 
-        total_aux_loss = total_load_balance_loss
-        special_loss = total_etf_loss
-        
-        return seg_tokens, det_token, total_aux_loss, special_loss
-
-    def _fuse_readouts(
-        self, x, tokens, t_final, use_t, total_load_balance_loss, total_etf_loss,
-        return_align=False,
-    ):
-        device = x.device
-
-        # ---- RGB readout (identical to _forward_rgb tail) ----
-        x = x.permute(1, 0, 2)
-        tokens = [t.permute(1, 0, 2) for t in tokens]
-        tokens = [self.image_encoder.ln_post(t) for t in tokens]
-        rgb_patch_tokens = [t[:, 1:, :] for t in tokens]
-
-        if self.use_paa and self.seg_proj_sharing_strategy == "shared":
-            seg_tokens_rgb = [
-                self.image_adapter["seg_proj"][i // 3](t)
-                for i, t in enumerate(rgb_patch_tokens)
-            ]
-        else:
-            seg_tokens_rgb = [
-                self.image_adapter["seg_proj"][i](t)
-                for i, t in enumerate(rgb_patch_tokens)
-            ]
-        seg_tokens_rgb = [F.normalize(t, dim=-1) for t in seg_tokens_rgb]
-        det_rgb = F.normalize(
-            self.image_adapter["det_proj"](rgb_patch_tokens[-3]), dim=-1
-        ).mean(1)
-
-        if not use_t:
-            # modality-dropped step: pure RGB output
-            if return_align:
-                return seg_tokens_rgb, det_rgb, total_load_balance_loss, total_etf_loss, None
-            return seg_tokens_rgb, det_rgb, total_load_balance_loss, total_etf_loss
-
-        # ---- Thermal readout (shared ln_post keeps features text-aligned) ----
-        t_tok = self.image_encoder.ln_post(t_final)   # (B, L, C) batch-first
-        t_patch = t_tok[:, 1:, :]
-        shared_idx = self.use_paa and self.seg_proj_sharing_strategy == "shared"
-        seg_tokens_t_raw = [
-            self.thermal_adapter["seg_proj"][(k // 3) if shared_idx else k](t_patch)
-            for k in range(len(seg_tokens_rgb))
-        ]
-        seg_tokens_t = [F.normalize(s, dim=-1) for s in seg_tokens_t_raw]
-        det_t = F.normalize(self.thermal_adapter["det_proj"](t_patch), dim=-1).mean(1)
-
-        # ---- Uncertainty-gated convex fusion ----
-        # one learned gate per projection level; PAA "shared" expands each
-        # level into 3 radius variants sharing the same projection (k // 3)
-        g = torch.sigmoid(self.seg_gate_logits).to(seg_tokens_rgb[0].dtype)
-        seg_tokens_fused = []
-        for k, (s_r, s_t) in enumerate(zip(seg_tokens_rgb, seg_tokens_t)):
-            g_k = g[(k // 3) if shared_idx else k]
-            seg_tokens_fused.append(
-                F.normalize(g_k * s_r + (1.0 - g_k) * s_t, dim=-1)
-            )
-        gd = torch.sigmoid(self.det_gate(torch.cat([det_rgb, det_t], dim=-1)))
-        det_token = F.normalize(gd * det_rgb + (1.0 - gd) * det_t, dim=-1)
-
-        align_pair = (
-            F.normalize(rgb_patch_tokens[-3].mean(dim=1), dim=-1),
-            F.normalize(t_patch.mean(dim=1), dim=-1),
+        return (
+            seg_tokens,
+            det_token,
+            total_load_balance_loss,
+            total_etf_loss,
         )
-
-        if return_align:
-            return (
-                seg_tokens_fused,
-                det_token,
-                total_load_balance_loss,
-                total_etf_loss,
-                align_pair,
-            )
-        return seg_tokens_fused, det_token, total_load_balance_loss, total_etf_loss
 
     def encode_text(self, text, adapt_text=True):
         if not adapt_text:

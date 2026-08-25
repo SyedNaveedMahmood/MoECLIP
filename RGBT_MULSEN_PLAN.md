@@ -1,7 +1,8 @@
 # Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
 
-Status: dataset audit, loader, thermal encoder, region context, and isolated
-zero-initialized router residual complete; end-to-end MoECLIP wiring not started.
+Status: dataset audit/loader and the end-to-end RGB-only-expert,
+region-conditioned MoECLIP model path are complete in offline smoke tests;
+MulSen-AD training/evaluation CLI integration is not started.
 
 Last updated: 2026-08-25
 
@@ -233,6 +234,16 @@ spring_pad, zipper`
   ablation. Expert inputs remain RGB hidden states only.
 - `tests/test_region_router.py`: initialization equivalence, context masking,
   Top-k shape, RGB-width expert output, gradient, and failure-contract tests.
+- `model/moe_adapter.py::MoECLIP`: variants A--D now share the RGB CLIP
+  readout. Thermal taps and RGB region context add router-logit residuals at
+  four MoE layers; only RGB tokens enter the LoRA experts. Frozen CLIP remains
+  in evaluation mode when adapters train, preventing PatchDropout from breaking
+  the square patch layout.
+- The exploratory thermal-expert stream, thermal readout projections, final
+  fusion gates, and unregistered lazy thermal positional state were removed.
+- `tests/test_region_moeclip.py`: A/B/C/D forward contracts, 12 standard-PAA
+  maps, RGB-only expert widths, dropout mode, gradients, PatchDropout guard, and
+  deterministic full-state round-trip tests on a small CLIP-shaped fixture.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -247,6 +258,7 @@ $Py = (Get-Command python).Source
   tests.test_thermal_encoder `
   tests.test_region_context `
   tests.test_region_router `
+  tests.test_region_moeclip `
   tools.test_inspect_mulsen_alignment -v
 
 & $Py tools\inspect_mulsen_alignment.py `
@@ -286,6 +298,13 @@ No training or evaluation command is defined yet.
   logits; after a nonzero head perturbation, Top-2 routing remained patch-level,
   context gradients were nonzero, and experts produced only 16-wide RGB test
   features rather than consuming the 8-wide conditioning representation.
+- End-to-end four-layer fixture: A/B/C/D each produced patch-derived outputs;
+  standard PAA retained 12 maps, thermal perturbation changed D only through
+  router conditioning, and gradients reached the thermal stem, full-grid
+  attention, context MLP, router head, active RGB LoRA experts, and RGB
+  segmentation projection. Training-only modality dropout activated at
+  probability one and disabled in evaluation. A state-dict reload was
+  bit-identical in deterministic evaluation.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
@@ -305,7 +324,7 @@ No training or evaluation command is defined yet.
   training images and be saved with the experiment config.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next implementation gate: wire the tested region context and logit residual
-  through all four RGB CLIP MoE layers, replacing the exploratory TwinCLIP
-  thermal-expert/final-fusion path. No segment-aware PAA until that path passes
-  shape, gradient, mode, loss, checkpoint, and memory smoke tests.
+- Next implementation gate: MulSen-AD protocol/CLI/checkpoint integration,
+  followed by a real ViT-L/14 batch-one forward/backward and CUDA-memory smoke.
+  No segment-aware PAA until this region-conditioned path passes that real-model
+  gate.
