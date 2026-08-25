@@ -47,6 +47,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-amp", dest="amp", action="store_false")
     parser.set_defaults(amp=True)
     parser.add_argument("--use-segment-paa", action="store_true")
+    parser.add_argument(
+        "--use-global-context",
+        action="store_true",
+        help="enable v1.1 global multimodal context and alpha smoke checks",
+    )
+    parser.add_argument("--use-thermal-reliability-gate", action="store_true")
+    parser.add_argument("--thermal-aux-lambda", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -100,7 +107,52 @@ def _gradient_report(model: MoECLIP) -> Dict[str, object]:
                     ),
                 }
             )
+    if model.use_global_context:
+        report.update(
+            {
+                "global_context_projection_l1": float(
+                    sum(
+                        _gradient_l1(context.patch_context_projection)
+                        for context in model.image_adapter["region_contexts"]
+                    )
+                ),
+                "context_alpha_l1": float(
+                    sum(
+                        float(adapter.context_scale_logit.grad.detach().abs().sum())
+                        if adapter.context_scale_logit.grad is not None
+                        else 0.0
+                        for adapter in moe_modules
+                    )
+                ),
+            }
+        )
+    if model.use_thermal_reliability_gate:
+        report["thermal_reliability_gate_l1"] = float(
+            sum(
+                _gradient_l1(context.reliability_mlp)
+                for context in model.image_adapter["region_contexts"]
+            )
+        )
+    if model.thermal_aux_lambda > 0.0:
+        report["thermal_aux_head_l1"] = _gradient_l1(
+            model.image_adapter["thermal_aux_head"]
+        )
     return report
+
+
+def _output_shape_report(outputs) -> Dict[str, object]:
+    """Extract legacy output shapes from four- or five-value model output."""
+
+    if not isinstance(outputs, (tuple, list)) or len(outputs) < 4:
+        raise AssertionError(
+            "MoECLIP forward hook expected at least four output values"
+        )
+    segmentation, detection, _balance, _etf = outputs[:4]
+    return {
+        "segmentation_maps": len(segmentation),
+        "segmentation_shape": list(segmentation[0].shape),
+        "detection_shape": list(detection.shape),
+    }
 
 
 def _require_finite(report: Dict[str, object], pass_name: str) -> None:
@@ -165,6 +217,18 @@ def main() -> None:
     use_thermal, use_region_routing = VARIANT_FLAGS[args.variant]
     if args.use_segment_paa and not use_region_routing:
         raise ValueError("segment-aware PAA is only valid for variants C/D")
+    if args.use_global_context and not use_region_routing:
+        raise ValueError("global context is only valid for variants C/D")
+    if args.use_thermal_reliability_gate and not (
+        use_thermal and use_region_routing
+    ):
+        raise ValueError(
+            "thermal reliability gating requires both thermal and region routing"
+        )
+    if not math.isfinite(args.thermal_aux_lambda) or args.thermal_aux_lambda < 0.0:
+        raise ValueError("thermal-aux-lambda must be finite and non-negative")
+    if args.thermal_aux_lambda > 0.0 and not use_thermal:
+        raise ValueError("thermal auxiliary supervision requires a thermal variant")
     normalization = None
     if use_thermal:
         if args.thermal_stats is None:
@@ -227,6 +291,9 @@ def main() -> None:
         region_coordinate_bias=1.0,
         region_coordinate_sigma=0.75,
         modality_dropout=0.0,
+        use_global_context=args.use_global_context,
+        use_thermal_reliability_gate=args.use_thermal_reliability_gate,
+        thermal_aux_lambda=args.thermal_aux_lambda,
         stable_adapter_norm=True,
         adapter_norm_floor=1.0,
     ).to(device)
@@ -243,14 +310,7 @@ def main() -> None:
     output_shapes: Dict[str, object] = {}
 
     def capture_outputs(_module, _inputs, outputs):
-        segmentation, detection, _balance, _etf = outputs
-        output_shapes.update(
-            {
-                "segmentation_maps": len(segmentation),
-                "segmentation_shape": list(segmentation[0].shape),
-                "detection_shape": list(detection.shape),
-            }
-        )
+        output_shapes.update(_output_shape_report(outputs))
 
     hook = model.register_forward_hook(capture_outputs)
     first = _step(
@@ -290,11 +350,27 @@ def main() -> None:
     ]
     if model.use_context_routing:
         required_second_pass.extend(("context_mlp_l1", "context_router_head_l1"))
+    if model.use_global_context:
+        required_second_pass.extend(
+            ("global_context_projection_l1", "context_alpha_l1")
+        )
     if model.use_thermal:
         required_second_pass.extend(("thermal_encoder_l1", "thermal_attention_l1"))
+    if model.use_thermal_reliability_gate:
+        required_second_pass.append("thermal_reliability_gate_l1")
+    if model.thermal_aux_lambda > 0.0:
+        required_second_pass.append("thermal_aux_head_l1")
     for key in required_second_pass:
         if second["gradients"][key] <= 0.0:
             raise AssertionError(f"second-pass gradient is zero for {key}")
+    for pass_name, pass_report in (("first", first), ("second", second)):
+        components = pass_report["components"]
+        for key in ("balance", "etf"):
+            value = float(components[key])
+            if not math.isfinite(value) or value <= 0.0:
+                raise AssertionError(
+                    f"{pass_name}-pass {key} component is not finite and active: {value}"
+                )
     if output_shapes.get("segmentation_maps") != 12:
         raise AssertionError(f"expected 12 PAA maps, got {output_shapes}")
 

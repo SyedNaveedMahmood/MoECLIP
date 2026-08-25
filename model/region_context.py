@@ -39,6 +39,10 @@ class RegionContextOutput:
     thermal_attention: torch.Tensor
     pool: RegionPoolOutput
     global_context: Optional[torch.Tensor] = None
+    # Optional diagnostics for the disabled-by-default thermal reliability
+    # gate.  ``None`` is deliberate for the historical path so enabling the
+    # field does not change any tensors or parameters in v1/v1.1.
+    thermal_reliability: Optional[torch.Tensor] = None
 
 
 def _validate_grid_size(grid_size: Tuple[int, int]) -> Tuple[int, int]:
@@ -355,12 +359,18 @@ class RegionContextEncoder(nn.Module):
         coordinate_bias_sigma: float = 0.75,
         dropout: float = 0.0,
         use_global_context: bool = False,
+        use_thermal_reliability_gate: bool = False,
     ) -> None:
         super().__init__()
         if context_dim <= 0:
             raise ValueError("context_dim must be positive")
         self.context_dim = int(context_dim)
         self.use_global_context = bool(use_global_context)
+        self.use_thermal_reliability_gate = bool(use_thermal_reliability_gate)
+        if self.use_thermal_reliability_gate and thermal_dim is None:
+            raise ValueError(
+                "thermal reliability gating requires a thermal branch"
+            )
         self.rgb_norm = nn.LayerNorm(rgb_dim)
         self.rgb_projection = nn.Linear(rgb_dim, self.context_dim, bias=False)
         self.thermal_attention = None
@@ -381,6 +391,17 @@ class RegionContextEncoder(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(self.context_dim, self.context_dim),
         )
+        # Construct this module only when explicitly requested.  In
+        # particular, disabled v1.1 checkpoints retain exactly the prior
+        # parameter/module structure.
+        self.reliability_mlp = None
+        if self.use_thermal_reliability_gate:
+            reliability_hidden = max(8, self.context_dim // 2)
+            self.reliability_mlp = nn.Sequential(
+                nn.Linear(self.context_dim * 3 + 1, reliability_hidden),
+                nn.GELU(),
+                nn.Linear(reliability_hidden, 1),
+            )
         if self.use_global_context:
             # Small per-patch projection: retain local region context while
             # injecting the count-weighted image context.  This is only
@@ -427,6 +448,62 @@ class RegionContextEncoder(nn.Module):
                 thermal_available,
             )
 
+        thermal_reliability = None
+        if self.use_thermal_reliability_gate:
+            if thermal_tokens is None:
+                # There is no thermal evidence to trust.  Report zero rather
+                # than a neutral/arbitrary gate value for missing modality.
+                thermal_reliability = projected_rgb.new_zeros(
+                    projected_rgb.shape[:2]
+                )
+            else:
+                # Attention is a probability distribution over the thermal
+                # grid.  Entropy is normalized to [0,1] and remains finite for
+                # the all-zero attention produced by modality dropout.
+                token_count = int(attention.shape[-1])
+                if token_count <= 1:
+                    normalized_entropy = attention.new_zeros(
+                        attention.shape[:2]
+                    )
+                else:
+                    probabilities = attention.clamp_min(torch.finfo(attention.dtype).tiny)
+                    entropy = -(probabilities * probabilities.log()).sum(dim=-1)
+                    normalized_entropy = entropy / math.log(token_count)
+                    # Missing thermal samples are represented by all-zero
+                    # attention; define their entropy as zero rather than
+                    # exposing a tiny numerical residual.
+                    normalized_entropy = torch.where(
+                        attention.sum(dim=-1) > 0,
+                        normalized_entropy,
+                        torch.zeros_like(normalized_entropy),
+                    )
+                reliability_input = torch.cat(
+                    (
+                        projected_rgb,
+                        projected_thermal,
+                        (projected_rgb - projected_thermal).abs(),
+                        normalized_entropy.unsqueeze(-1).to(
+                            dtype=projected_rgb.dtype
+                        ),
+                    ),
+                    dim=-1,
+                )
+                thermal_reliability = torch.sigmoid(
+                    self.reliability_mlp(reliability_input)
+                ).squeeze(-1)
+                active_regions = pool.valid_regions.to(
+                    dtype=thermal_reliability.dtype
+                )
+                if thermal_available is not None:
+                    active_regions = active_regions * thermal_available.to(
+                        device=active_regions.device,
+                        dtype=active_regions.dtype,
+                    ).unsqueeze(1)
+                # Padded regions and dropped/missing thermal samples have no
+                # attended evidence and must expose rho=0 diagnostically.
+                thermal_reliability = thermal_reliability * active_regions
+            projected_thermal = projected_thermal * thermal_reliability.unsqueeze(-1)
+
         combined = torch.cat(
             (
                 projected_rgb,
@@ -462,6 +539,7 @@ class RegionContextEncoder(nn.Module):
             thermal_attention=attention,
             pool=pool,
             global_context=global_context,
+            thermal_reliability=thermal_reliability,
         )
 
 

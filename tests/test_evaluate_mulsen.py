@@ -59,6 +59,10 @@ class EvaluateMulSenTest(unittest.TestCase):
             self.assertIs(build_model_from_config(config, device), model)
 
         self.assertFalse(constructor.call_args.kwargs["use_global_context"])
+        self.assertFalse(
+            constructor.call_args.kwargs["use_thermal_reliability_gate"]
+        )
+        self.assertEqual(constructor.call_args.kwargs["thermal_aux_lambda"], 0.0)
 
     def test_constant_minmax_is_finite(self) -> None:
         normalized = _safe_minmax(np.full((3, 2), 7.0))

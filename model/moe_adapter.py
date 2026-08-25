@@ -418,6 +418,8 @@ class MoECLIP(nn.Module):
         stable_adapter_norm: bool = False,
         adapter_norm_floor: float = 1.0,
         use_global_context: bool = False,
+        use_thermal_reliability_gate: bool = False,
+        thermal_aux_lambda: float = 0.0,
         **kwargs,
     ):
         super().__init__()
@@ -441,6 +443,19 @@ class MoECLIP(nn.Module):
         self.use_region_routing = bool(use_region_routing)
         self.use_context_routing = self.use_thermal or self.use_region_routing
         self.use_global_context = bool(use_global_context)
+        self.use_thermal_reliability_gate = bool(use_thermal_reliability_gate)
+        if self.use_thermal_reliability_gate and not (
+            self.use_thermal and self.use_region_routing
+        ):
+            raise ValueError(
+                "use_thermal_reliability_gate requires both thermal and "
+                "region-conditioned routing"
+            )
+        if not math.isfinite(thermal_aux_lambda) or thermal_aux_lambda < 0.0:
+            raise ValueError("thermal_aux_lambda must be finite and non-negative")
+        if thermal_aux_lambda > 0.0 and not self.use_thermal:
+            raise ValueError("thermal auxiliary supervision requires use_thermal=True")
+        self.thermal_aux_lambda = float(thermal_aux_lambda)
         if self.use_global_context and not self.use_context_routing:
             raise ValueError(
                 "use_global_context requires thermal or region-conditioned routing"
@@ -546,8 +561,14 @@ class MoECLIP(nn.Module):
                     coordinate_bias_strength=region_coordinate_bias,
                     coordinate_bias_sigma=region_coordinate_sigma,
                     use_global_context=self.use_global_context,
+                    use_thermal_reliability_gate=self.use_thermal_reliability_gate,
                 )
                 for _ in self.moe_layers
+            )
+        if self.thermal_aux_lambda > 0.0:
+            image_adapter["thermal_aux_head"] = nn.Sequential(
+                nn.LayerNorm(thermal_width),
+                nn.Linear(thermal_width, 2),
             )
         self.image_adapter = nn.ModuleDict(image_adapter)
         self.text_adapter = nn.ModuleList(
@@ -722,6 +743,7 @@ class MoECLIP(nn.Module):
         thermal=None,
         region_map=None,
         return_align=False,
+        return_thermal_aux=False,
     ):
         """Run RGB MoECLIP with optional region/thermal router conditioning.
 
@@ -730,11 +752,19 @@ class MoECLIP(nn.Module):
         """
 
         if self.use_context_routing:
-            outputs = self._forward_conditioned(x, thermal, region_map)
+            outputs, thermal_aux_logits = self._forward_conditioned(
+                x,
+                thermal,
+                region_map,
+                return_thermal_aux=return_thermal_aux,
+            )
         else:
             outputs = self._forward_rgb(x)
+            thermal_aux_logits = None
         if return_align:
-            return (*outputs, None)
+            outputs = (*outputs, None)
+        if return_thermal_aux:
+            return (*outputs, thermal_aux_logits)
         return outputs
 
     def _sample_thermal_availability(
@@ -765,7 +795,9 @@ class MoECLIP(nn.Module):
             )
         return output.taps[tap_index]
 
-    def _forward_conditioned(self, image, thermal, region_map):
+    def _forward_conditioned(
+        self, image, thermal, region_map, *, return_thermal_aux=False
+    ):
         batch_size = image.shape[0]
         thermal_output = None
         thermal_available = None
@@ -774,10 +806,11 @@ class MoECLIP(nn.Module):
                 raise ValueError("RGB and thermal batch sizes differ")
             thermal = thermal.to(image.device)
             thermal_available = self._sample_thermal_availability(thermal)
-            masked_thermal = thermal * thermal_available.to(
-                dtype=thermal.dtype
-            ).view(-1, 1, 1, 1)
-            thermal_output = self.thermal_branch(masked_thermal)
+            # Encode genuine thermal input once.  ``thermal_available`` is a
+            # router-evidence mask, not an input replacement: modality
+            # dropout must not turn the auxiliary thermal task into training
+            # on a synthetic all-zero image.
+            thermal_output = self.thermal_branch(thermal)
         elif self.use_thermal:
             self.last_thermal_available = torch.zeros(
                 batch_size, dtype=torch.bool, device=image.device
@@ -877,9 +910,20 @@ class MoECLIP(nn.Module):
                     patch_region_ids if self.use_segment_paa else None
                 ),
             )
-        return self._readout_rgb(
+        outputs = self._readout_rgb(
             tokens, total_load_balance_loss, total_etf_loss
         )
+        thermal_aux_logits = None
+        if return_thermal_aux and self.thermal_aux_lambda > 0.0:
+            if thermal_output is None:
+                raise ValueError(
+                    "thermal auxiliary supervision requires a thermal input"
+                )
+            pooled_thermal = thermal_output.tokens.mean(dim=1)
+            thermal_aux_logits = self.image_adapter["thermal_aux_head"](
+                pooled_thermal
+            )
+        return outputs, thermal_aux_logits
 
     def _forward_rgb(self, x):
         x = self.image_encoder.conv1(x)

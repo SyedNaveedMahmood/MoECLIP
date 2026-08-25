@@ -192,6 +192,13 @@ def build_model_from_config(
         # checkpoints.  Missing means the original v1 path, preserving
         # reconstruction of legacy configs without weakening required keys.
         use_global_context=bool(config.get("use_global_context", False)),
+        # Optional v1.2 components are likewise absent from older configs.
+        # Defaults here must stay identical to their disabled-by-default
+        # training values so legacy checkpoints reconstruct strictly.
+        use_thermal_reliability_gate=bool(
+            config.get("use_thermal_reliability_gate", False)
+        ),
+        thermal_aux_lambda=float(config.get("thermal_aux_lambda", 0.0)),
         modality_dropout=float(config["modality_dropout"]),
         stable_adapter_norm=bool(config["stable_adapter_norm"]),
         adapter_norm_floor=float(config["adapter_norm_floor"]),

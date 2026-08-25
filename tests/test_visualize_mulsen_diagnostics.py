@@ -5,12 +5,14 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+import numpy as np
 import torch
 from torch import nn
 
 from tools.visualize_mulsen_diagnostics import (
     _RouterCapture,
     _patch_map,
+    _reliability_display,
     validate_visualization_scope,
 )
 
@@ -49,6 +51,20 @@ class VisualizationHelperTest(unittest.TestCase):
         self.assertEqual(mapped.shape, (2, 2))
         with self.assertRaisesRegex(ValueError, "not square"):
             _patch_map(torch.tensor([0, 1, 2]))
+
+    def test_reliability_is_broadcast_from_regions_to_patch_grid(self) -> None:
+        class Pool:
+            patch_region_indices = torch.tensor([[0, 0, 1, 1]])
+
+        class Output:
+            thermal_reliability = torch.tensor([[0.2, 0.8]])
+            pool = Pool()
+
+        mapped = _reliability_display(Output())
+        self.assertEqual(mapped.shape, (2, 2))
+        np.testing.assert_allclose(
+            mapped, np.array([[0.2, 0.2], [0.8, 0.8]], dtype=np.float32)
+        )
 
 
 if __name__ == "__main__":

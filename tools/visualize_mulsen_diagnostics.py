@@ -134,6 +134,23 @@ def _attention_display(attention: torch.Tensor, thermal_tokens: int) -> np.ndarr
     return values.mean(axis=0).reshape(side, side)
 
 
+def _reliability_display(output) -> Optional[np.ndarray]:
+    """Broadcast per-region rho to the RGB patch grid for visualization."""
+
+    reliability = getattr(output, "thermal_reliability", None)
+    if reliability is None:
+        return None
+    if reliability.ndim != 2 or reliability.shape[0] != 1:
+        raise ValueError(
+            "expected one-sample thermal reliability with shape [1,R]"
+        )
+    patch_regions = output.pool.patch_region_indices
+    if patch_regions.ndim != 2 or patch_regions.shape[0] != 1:
+        raise ValueError("expected one-sample patch-region indices")
+    patch_values = reliability[0].gather(0, patch_regions[0].to(reliability.device))
+    return _patch_map(patch_values.detach().float().cpu().numpy())
+
+
 def _make_figure(
     *,
     rgb: np.ndarray,
@@ -141,6 +158,7 @@ def _make_figure(
     regions: np.ndarray,
     anomaly_map: np.ndarray,
     attention_map: Optional[np.ndarray],
+    reliability_map: Optional[np.ndarray],
     rgb_mask: np.ndarray,
     thermal_mask: np.ndarray,
     routers: List[_RouterCapture],
@@ -188,7 +206,13 @@ def _make_figure(
     axes[6].imshow(thermal, cmap="inferno")
     axes[6].imshow(thermal_mask, cmap="Blues", alpha=(thermal_mask > 0) * 0.6)
     axes[6].set_title("IR GT mask (evaluation-only overlay)")
-    axes[7].axis("off")
+    if reliability_map is None:
+        axes[7].axis("off")
+        axes[7].set_title("Thermal reliability unavailable")
+    else:
+        image = axes[7].imshow(reliability_map, cmap="viridis", vmin=0.0, vmax=1.0)
+        axes[7].set_title("Thermal reliability rho (router evidence)")
+        figure.colorbar(image, ax=axes[7], fraction=0.046)
 
     for axis_index, (layer, capture) in enumerate(
         zip(display_layers, routers), start=8
@@ -344,11 +368,14 @@ def main() -> None:
                 handle.remove()
 
         attention_map = None
+        reliability_map = None
         if region_captures:
             output = region_captures[-1].output
             if output is not None and output.thermal_attention.numel():
                 attention = output.thermal_attention[0]
                 attention_map = _attention_display(attention, attention.shape[-1])
+            if output is not None:
+                reliability_map = _reliability_display(output)
 
         sample_name = _safe_name(key)
         figure_path = output_dir / f"{sample_name}.png"
@@ -358,6 +385,7 @@ def main() -> None:
             regions=sample.get("region_map", torch.zeros_like(sample["mask_rgb"][0])).numpy(),
             anomaly_map=anomaly_map,
             attention_map=attention_map,
+            reliability_map=reliability_map,
             rgb_mask=sample["mask_rgb"][0].numpy(),
             thermal_mask=sample["mask_thermal"][0].numpy(),
             routers=router_captures,
@@ -383,6 +411,9 @@ def main() -> None:
             },
             "region_to_thermal_attention": (
                 attention_map.tolist() if attention_map is not None else None
+            ),
+            "thermal_reliability": (
+                reliability_map.tolist() if reliability_map is not None else None
             ),
         }
         report["samples"].append(json_sample)

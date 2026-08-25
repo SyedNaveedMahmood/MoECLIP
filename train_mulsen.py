@@ -119,7 +119,24 @@ def parse_args():
             "context for patch routing (variants C/D only)"
         ),
     )
+    parser.add_argument(
+        "--use_thermal_reliability_gate",
+        action="store_true",
+        help=(
+            "gate attended thermal region evidence with a learned reliability "
+            "scalar (disabled by default; D only)"
+        ),
+    )
     parser.add_argument("--modality_dropout", type=float, default=0.2)
+    parser.add_argument(
+        "--thermal_aux_lambda",
+        type=float,
+        default=0.0,
+        help=(
+            "training-only thermal label loss weight; zero disables the head "
+            "and preserves the inference pathway"
+        ),
+    )
     parser.add_argument("--align_loss_lambda", type=float, default=0.0)
     parser.add_argument("--adapter_norm_floor", type=float, default=1.0)
     parser.add_argument(
@@ -182,6 +199,21 @@ def validate_args(args) -> Tuple[bool, bool]:
         raise ValueError(
             "use_global_context is only defined for variants C/D"
         )
+    use_reliability_gate = bool(
+        getattr(args, "use_thermal_reliability_gate", False)
+    )
+    thermal_aux_lambda = float(getattr(args, "thermal_aux_lambda", 0.0))
+    if use_reliability_gate and not (
+        use_thermal and use_region_routing
+    ):
+        raise ValueError(
+            "use_thermal_reliability_gate requires both thermal and "
+            "region-conditioned routing"
+        )
+    if not np.isfinite(thermal_aux_lambda) or thermal_aux_lambda < 0.0:
+        raise ValueError("thermal_aux_lambda must be finite and non-negative")
+    if thermal_aux_lambda > 0.0 and not use_thermal:
+        raise ValueError("thermal auxiliary supervision requires a thermal variant")
     if args.num_context_experts is not None and not (
         0 <= args.num_context_experts <= args.moe_num_experts
     ):
@@ -237,6 +269,10 @@ def build_experiment_config(
         "region_coordinate_sigma": args.region_coordinate_sigma,
         "num_context_experts": args.num_context_experts,
         "use_global_context": args.use_global_context,
+        "use_thermal_reliability_gate": bool(
+            getattr(args, "use_thermal_reliability_gate", False)
+        ),
+        "thermal_aux_lambda": float(getattr(args, "thermal_aux_lambda", 0.0)),
         "modality_dropout": args.modality_dropout,
         "stable_adapter_norm": args.stable_adapter_norm,
         "adapter_norm_floor": args.adapter_norm_floor,
@@ -348,9 +384,29 @@ def batch_loss(model, batch, device, img_size, balance_weight, etf_weight):
         [text_by_class[class_name] for class_name in class_names], dim=0
     )
 
-    patch_features, detection, balance, etf = model(
-        image, thermal=thermal, region_map=region_map
-    )
+    thermal_aux_lambda = float(getattr(model, "thermal_aux_lambda", 0.0))
+    if thermal_aux_lambda > 0.0:
+        patch_features, detection, balance, etf, thermal_aux_logits = model(
+            image,
+            thermal=thermal,
+            region_map=region_map,
+            return_thermal_aux=True,
+        )
+        if thermal_aux_logits is None:
+            raise RuntimeError(
+                "thermal auxiliary loss is enabled but the model returned no logits"
+            )
+        if "label_thermal" not in batch:
+            raise KeyError(
+                "batch is missing label_thermal required by thermal auxiliary loss"
+            )
+        label_thermal = batch["label_thermal"].to(device, non_blocking=True).long()
+        thermal_aux = F.cross_entropy(thermal_aux_logits, label_thermal)
+    else:
+        patch_features, detection, balance, etf = model(
+            image, thermal=thermal, region_map=region_map
+        )
+        thermal_aux = image.new_zeros(())
     classification = F.cross_entropy(
         torch.matmul(detection.unsqueeze(1), text_features)[:, 0], label
     )
@@ -384,12 +440,14 @@ def batch_loss(model, batch, device, img_size, balance_weight, etf_weight):
         + segmentation
         + balance_weight * balance
         + etf_weight * etf
+        + thermal_aux_lambda * thermal_aux
     )
     return total, {
         "classification": classification.detach(),
         "segmentation": segmentation.detach(),
         "balance": balance.detach(),
         "etf": etf.detach(),
+        "thermal_aux": thermal_aux.detach(),
     }
 
 
@@ -482,6 +540,8 @@ def main() -> None:
         region_coordinate_sigma=args.region_coordinate_sigma,
         num_context_experts=args.num_context_experts,
         use_global_context=args.use_global_context,
+        use_thermal_reliability_gate=args.use_thermal_reliability_gate,
+        thermal_aux_lambda=args.thermal_aux_lambda,
         modality_dropout=args.modality_dropout,
         stable_adapter_norm=args.stable_adapter_norm,
         adapter_norm_floor=args.adapter_norm_floor,
