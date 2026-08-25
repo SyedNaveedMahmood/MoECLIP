@@ -1,7 +1,7 @@
 # Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
 
-Status: dataset audit, standalone loader, thermal conditioning encoder, and
-isolated region-context module complete; MoE router integration not started.
+Status: dataset audit, loader, thermal encoder, region context, and isolated
+zero-initialized router residual complete; end-to-end MoECLIP wiring not started.
 
 Last updated: 2026-08-25
 
@@ -227,6 +227,12 @@ spring_pad, zipper`
   same-index RGB/IR fusion.
 - `tests/test_region_context.py`: deterministic patch assignment/pooling,
   full-grid attention, soft-prior, missing-modality, padding, and gradient tests.
+- `model/moe_adapter.py::BaseIndependentMoE`: optional region-context logit
+  residual with a zero-initialized head. Its default exposes all experts to
+  learned context; a checkpointed fixed subset supports the context-expert-count
+  ablation. Expert inputs remain RGB hidden states only.
+- `tests/test_region_router.py`: initialization equivalence, context masking,
+  Top-k shape, RGB-width expert output, gradient, and failure-contract tests.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -240,6 +246,7 @@ $Py = (Get-Command python).Source
   tests.test_mulsen_ad `
   tests.test_thermal_encoder `
   tests.test_region_context `
+  tests.test_region_router `
   tools.test_inspect_mulsen_alignment -v
 
 & $Py tools\inspect_mulsen_alignment.py `
@@ -275,6 +282,10 @@ No training or evaluation command is defined yet.
   to `[1,1369,256]` RGB patch contexts. Every valid region attended over all
   1,369 thermal tokens, attention sums were numerically one, and finite nonzero
   gradients reached RGB inputs, the thermal stem, and the context MLP.
+- Isolated MoE routing smoke: a zero context head exactly preserved base router
+  logits; after a nonzero head perturbation, Top-2 routing remained patch-level,
+  context gradients were nonzero, and experts produced only 16-wide RGB test
+  features rather than consuming the 8-wide conditioning representation.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
@@ -294,7 +305,7 @@ No training or evaluation command is defined yet.
   training images and be saved with the experiment config.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next implementation gate: inject a zero-initialized per-region logit residual
-  into each RGB MoE router while keeping every LoRA expert RGB-only. No
-  segment-aware PAA until RGB+IR region-conditioned routing passes shape,
-  gradient, mode, loss, checkpoint, and memory smoke tests.
+- Next implementation gate: wire the tested region context and logit residual
+  through all four RGB CLIP MoE layers, replacing the exploratory TwinCLIP
+  thermal-expert/final-fusion path. No segment-aware PAA until that path passes
+  shape, gradient, mode, loss, checkpoint, and memory smoke tests.

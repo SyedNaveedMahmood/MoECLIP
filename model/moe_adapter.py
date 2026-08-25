@@ -52,7 +52,10 @@ class SimpleLoraExpert(nn.Module):
         self.dtype_ = config.dtype_
         self.r_ = config.lora_r_
         self.alpha_ = config.lora_alpha_
-        self.device_ = torch.device("cuda:0")
+        # Allocate on the caller's/default device and let the containing model's
+        # ``.to(device)`` decide placement. Hard-coding CUDA made CPU smoke tests
+        # impossible and silently ignored the constructor's device argument.
+        self.device_ = None if device is None else torch.device(device)
         
         if config.use_rslora_:
             self.scaling_ = self.alpha_ / math.sqrt(self.r_)
@@ -74,7 +77,7 @@ class SimpleLoraExpert(nn.Module):
     def reset_parameters(
         self, weight: Tuple[torch.Tensor, torch.Tensor] = (None, None)
     ) -> None:
-        assert isinstance(weight, Tuple)
+        assert isinstance(weight, tuple)
         assert len(weight) == 2
         assert ((weight[0] is None) and (weight[1] is None)) or (
             isinstance(weight[0], torch.Tensor)
@@ -115,6 +118,8 @@ class BaseIndependentMoE(nn.Module):
         num_shared_experts: int = 0,
         num_thermal_experts: int = 0,
         use_cond: bool = False,
+        router_context_dim: Optional[int] = None,
+        num_context_experts: Optional[int] = None,
     ):
         super().__init__()
         self.config = config
@@ -149,6 +154,27 @@ class BaseIndependentMoE(nn.Module):
         if use_cond:
             # cross-modal conditioning: router sees [own-stream token ; other-stream token]
             self.cond_proj = nn.Linear(d_model * 2, d_model, bias=False)
+
+        # V1 region-guided routing adds a context-dependent *logit residual*.
+        # Experts still receive only ``hidden_states`` below.  Applying context
+        # to all experts is the default; a fixed subset is available solely as
+        # a configurable ablation and carries no hard-coded modality meaning.
+        self.router_context_dim = router_context_dim
+        if router_context_dim is not None:
+            if router_context_dim <= 0:
+                raise ValueError("router_context_dim must be positive")
+            if num_context_experts is None:
+                num_context_experts = config.num_experts_
+            if not 0 <= num_context_experts <= config.num_experts_:
+                raise ValueError(
+                    "num_context_experts must be between zero and num_experts"
+                )
+            self.context_gate = nn.Linear(
+                router_context_dim, config.num_experts_, bias=False
+            )
+            context_mask = torch.zeros(config.num_experts_, dtype=torch.float32)
+            context_mask[:num_context_experts] = 1.0
+            self.register_buffer("context_expert_mask", context_mask)
         
         self.jitter_noise = getattr(config, "jitter_noise_", 0.0)
         self.init_custom_weights()
@@ -190,6 +216,51 @@ class BaseIndependentMoE(nn.Module):
 
     def init_custom_weights(self):
         nn.init.zeros_(self.gate.weight)
+        if hasattr(self, "context_gate"):
+            nn.init.zeros_(self.context_gate.weight)
+
+    def compute_router_logits(
+        self,
+        hidden_states: torch.Tensor,
+        cond: Optional[torch.Tensor] = None,
+        router_context: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Compute base RGB logits plus an optional region-context residual."""
+
+        if hidden_states.shape[-1] != self.d_model:
+            raise ValueError(
+                f"hidden_states width must be {self.d_model}, got "
+                f"{hidden_states.shape[-1]}"
+            )
+        hidden_states_flat = hidden_states.reshape(-1, self.d_model)
+        if self.use_cond and cond is not None:
+            if cond.shape != hidden_states.shape:
+                raise ValueError("legacy conditioning must match hidden-state shape")
+            cond_flat = cond.reshape(-1, self.d_model).to(hidden_states_flat.dtype)
+            router_in = self.cond_proj(
+                torch.cat([hidden_states_flat, cond_flat], dim=-1)
+            )
+        else:
+            router_in = hidden_states_flat
+        router_logits = self.gate(router_in)
+
+        if router_context is not None:
+            if not hasattr(self, "context_gate"):
+                raise ValueError(
+                    "router context was supplied but router_context_dim is disabled"
+                )
+            expected_shape = hidden_states.shape[:-1] + (self.router_context_dim,)
+            if router_context.shape != expected_shape:
+                raise ValueError(
+                    f"router context must have shape {expected_shape}, got "
+                    f"{tuple(router_context.shape)}"
+                )
+            context_flat = router_context.reshape(-1, self.router_context_dim)
+            context_flat = context_flat.to(dtype=self.context_gate.weight.dtype)
+            residual = self.context_gate(context_flat)
+            residual = residual * self.context_expert_mask.to(residual.dtype)
+            router_logits = router_logits + residual.to(router_logits.dtype)
+        return router_logits
         
     def _vit_forward(self, expert_mask: torch.Tensor, hidden_states: torch.Tensor) -> Dict[int, torch.Tensor]:
         expert_outputs_dict = {}
@@ -209,25 +280,21 @@ class BaseIndependentMoE(nn.Module):
         hidden_states: torch.Tensor,
         cond: Optional[torch.Tensor] = None,
         expert_group: Optional[str] = None,
+        router_context: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         
         if self.jitter_noise > 0 and self.training:
-            hidden_states *= torch.empty_like(hidden_states).uniform_(
+            hidden_states = hidden_states * torch.empty_like(hidden_states).uniform_(
                 1.0 - self.jitter_noise, 1.0 + self.jitter_noise
             )
         
         input_dtype = hidden_states.dtype
         hidden_states_flat = hidden_states.reshape(-1, hidden_dim)
 
-        # --- MoE-TwinCLIP: cross-modal conditioned routing + expert-group masking ---
-        if self.use_cond and cond is not None:
-            cond_flat = cond.reshape(-1, hidden_dim).to(hidden_states_flat.dtype)
-            router_in = self.cond_proj(torch.cat([hidden_states_flat, cond_flat], dim=-1))
-        else:
-            router_in = hidden_states_flat
-
-        router_logits = self.gate(router_in)
+        router_logits = self.compute_router_logits(
+            hidden_states, cond=cond, router_context=router_context
+        )
         if expert_group is not None:
             group_mask = torch.full_like(router_logits, float("-inf"))
             group_mask[:, self.expert_groups[expert_group]] = 0.0
