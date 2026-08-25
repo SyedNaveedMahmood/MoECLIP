@@ -1,4 +1,7 @@
-BASE_PATH = "C:/Users/user7/Desktop/moeclip/data"
+from pathlib import Path
+
+
+BASE_PATH = Path(__file__).resolve().parents[1] / "data"
 DATA_PATH = {
     "Brain": f"{BASE_PATH}/Brain",
     "Liver": f"{BASE_PATH}/Liver",
@@ -14,6 +17,7 @@ DATA_PATH = {
     "DTD-Synthetic": f"{BASE_PATH}/DTD-Synthetic",
     "Endo": f"{BASE_PATH}/Endo",
     "headct": f"{BASE_PATH}/headct",
+    "MulSenAD": f"{BASE_PATH}/MulSenAD_official/MulSen_AD",
 }
 
 CLASS_NAMES = {
@@ -73,6 +77,23 @@ CLASS_NAMES = {
         "pcb1",
     ],
     "BTAD": ["01", "02", "03"],
+    "MulSenAD": [
+        "button_cell",
+        "capsule",
+        "cotton",
+        "cube",
+        "flat_pad",
+        "light",
+        "nut",
+        "piggy",
+        "plastic_cylinder",
+        "screen",
+        "screw",
+        "solar_panel",
+        "spring_pad",
+        "toothbrush",
+        "zipper",
+    ],
 }       
 DOMAINS = {
     "VisA": "Industrial",
@@ -89,6 +110,7 @@ DOMAINS = {
     "Colon_colonDB": "Medical",
     "Colon_Kvasir": "Medical",
     "Colon_cvc300": "Medical",
+    "MulSenAD": "Industrial",
     
 }
 REAL_NAMES = {
@@ -156,6 +178,23 @@ REAL_NAMES = {
         "02": "vertical fabric lines in warm, dusty pink and beige tones",
         "03": "oval concentric circular rings in gradient shades of blue and white",
     },
+    "MulSenAD": {
+        "button_cell": "button cell battery",
+        "capsule": "capsule",
+        "cotton": "cotton wad",
+        "cube": "cube",
+        "flat_pad": "flat pad",
+        "light": "light bulb",
+        "nut": "metal nut",
+        "piggy": "pig figurine",
+        "plastic_cylinder": "plastic cylinder",
+        "screen": "screen",
+        "screw": "screw",
+        "solar_panel": "solar panel",
+        "spring_pad": "spring pad",
+        "toothbrush": "toothbrush",
+        "zipper": "zipper",
+    },
 }
 PROMPTS = {
     "prompt_normal": ["{}", "a {}", "the {}"],
@@ -172,6 +211,3 @@ PROMPTS = {
     ],
 }
 
-# MoE-TwinCLIP: registered thermal counterpart root for each dataset.
-# Thermal files mirror the RGB relative paths (data/<name>_T/<relative/path>).
-THERMAL_PATH = {k: f"{BASE_PATH}/{k}_T" for k in DATA_PATH}

@@ -244,6 +244,14 @@ spring_pad, zipper`
 - `tests/test_region_moeclip.py`: A/B/C/D forward contracts, 12 standard-PAA
   maps, RGB-only expert widths, dropout mode, gradients, PatchDropout guard, and
   deterministic full-state round-trip tests on a small CLIP-shaped fixture.
+- `dataset/mulsen_protocol.py`: executable, locked development/final category
+  partitions. Training composes official normal-train samples with only
+  RGB-or-IR-visible seen-category anomalies; evaluation retains good and visible
+  anomalies while filtering unavailable records without relabeling.
+- `dataset/constants.py`: MulSen-AD prompt names/domain added and the old
+  user-specific absolute data root replaced by a repository-relative path.
+- `tests/test_mulsen_protocol.py`: category disjointness/completeness, selection
+  rules, geometry-mode, and prompt-coverage tests.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -259,6 +267,7 @@ $Py = (Get-Command python).Source
   tests.test_region_context `
   tests.test_region_router `
   tests.test_region_moeclip `
+  tests.test_mulsen_protocol `
   tools.test_inspect_mulsen_alignment -v
 
 & $Py tools\inspect_mulsen_alignment.py `
@@ -305,6 +314,10 @@ No training or evaluation command is defined yet.
   segmentation projection. Training-only modality dropout activated at
   probability one and disabled in evaluation. A state-dict reload was
   bit-identical in deterministic evaluation.
+- Real record-index smoke (no image decode): development training is 705 normal
+  plus 251 visible anomalies, development validation is 20 normal plus 56
+  visible anomalies, final refit is 885 plus 307, and locked unseen evaluation
+  is 50 plus 159. These reproduce the predeclared audit counts.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
