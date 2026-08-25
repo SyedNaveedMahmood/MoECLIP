@@ -275,6 +275,42 @@ def configure_trainable_parameters(model: MoECLIP, use_fofs: bool):
     return trainable
 
 
+def _segmentation_supervision_mask(batch, device, batch_size):
+    """Return the per-sample mask for RGB segmentation supervision.
+
+    MulSen's image label is the RGB-or-infrared label, but the segmentation
+    target is explicitly RGB-space.  Thus IR-only anomalies are not trained
+    against an all-zero RGB mask.  Good samples remain supervised with their
+    all-zero RGB target, while RGB-visible samples use their RGB mask whether
+    or not IR is also positive.
+
+    Older callers without MulSen modality metadata retain the historical
+    behavior and supervise every sample.
+    """
+    anomaly_types = batch.get("anomaly_type")
+    label_rgb = batch.get("label_rgb")
+    if anomaly_types is None or label_rgb is None:
+        return torch.ones(batch_size, dtype=torch.bool, device=device)
+
+    if len(anomaly_types) != batch_size:
+        raise RuntimeError(
+            "anomaly_type batch length does not match image batch: "
+            f"{len(anomaly_types)} != {batch_size}"
+        )
+    label_rgb = torch.as_tensor(label_rgb, device=device).reshape(-1).bool()
+    if label_rgb.numel() != batch_size:
+        raise RuntimeError(
+            "label_rgb batch length does not match image batch: "
+            f"{label_rgb.numel()} != {batch_size}"
+        )
+    good = torch.tensor(
+        [str(anomaly_type) == "good" for anomaly_type in anomaly_types],
+        dtype=torch.bool,
+        device=device,
+    )
+    return good | label_rgb
+
+
 def batch_loss(model, batch, device, img_size, balance_weight, etf_weight):
     image = batch["image"].to(device, non_blocking=True)
     mask = batch["mask_rgb"].to(device, non_blocking=True)
@@ -306,6 +342,9 @@ def batch_loss(model, batch, device, img_size, balance_weight, etf_weight):
         torch.matmul(detection.unsqueeze(1), text_features)[:, 0], label
     )
     segmentation = image.new_zeros(())
+    segmentation_valid = _segmentation_supervision_mask(
+        batch, image.device, image.shape[0]
+    )
     for feature in patch_features:
         scores = 100.0 * torch.matmul(feature, text_features)
         side = int(round(feature.shape[1] ** 0.5))
@@ -318,10 +357,15 @@ def batch_loss(model, batch, device, img_size, balance_weight, etf_weight):
             scores, size=img_size, mode="bilinear", align_corners=True
         )
         scores = torch.softmax(scores, dim=1)
-        # RGB-negative modality records have a valid all-zero RGB target. IR-only
-        # anomalies remain image-positive via label_rgbt but are not assigned a
-        # fabricated RGB anomaly mask.
-        segmentation = segmentation + calculate_seg_loss(scores, mask)
+        # Good samples have valid all-zero RGB targets. RGB-visible samples use
+        # their RGB masks, including RGB+IR samples. IR-only anomalies remain
+        # image-positive via label_rgbt but do not receive fabricated RGB
+        # segmentation supervision. Indexing before loss computation makes
+        # focal and Dice losses normalize by supervised samples only.
+        if segmentation_valid.any():
+            segmentation = segmentation + calculate_seg_loss(
+                scores[segmentation_valid], mask[segmentation_valid]
+            )
     total = (
         classification
         + segmentation
