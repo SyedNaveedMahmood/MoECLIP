@@ -209,11 +209,13 @@ def build_experiment_config(
         "moe_num_experts": args.moe_num_experts,
         "moe_top_k": args.moe_top_k,
         "moe_layers": list(args.moe_layers),
+        "levels": [6, 12, 18, 24],
         "router_init": args.router_init,
         "use_fofs": args.use_fofs,
         "use_paa": args.use_paa,
         "use_segment_paa": args.use_segment_paa,
         "seg_proj_sharing_strategy": args.seg_proj_sharing_strategy,
+        "relu": args.relu,
         "image_adapt_weight": args.image_adapt_weight,
         "thermal_depth": args.thermal_depth,
         "thermal_width": args.thermal_width,
@@ -358,14 +360,26 @@ def main() -> None:
 
     output_dir = args.output_dir.expanduser().resolve()
     config_path = output_dir / "experiment_config.json"
-    if config_path.exists() and args.resume is None:
-        raise FileExistsError(
-            f"refusing to overwrite an existing experiment: {output_dir}"
+    if output_dir.exists() and not output_dir.is_dir():
+        raise FileExistsError(f"output path is not a directory: {output_dir}")
+    if args.resume is None and output_dir.exists() and any(output_dir.iterdir()):
+        raise FileExistsError(f"refusing to overwrite an existing experiment: {output_dir}")
+    if (
+        args.resume is not None
+        and output_dir.exists()
+        and any(output_dir.iterdir())
+        and not config_path.exists()
+    ):
+        raise FileNotFoundError(
+            "non-empty resume directory has no experiment_config.json"
         )
+    if config_path.exists():
+        stored_config = json.loads(config_path.read_text(encoding="utf-8"))
+        if args.resume is None or stored_config != experiment_config:
+            raise ValueError(
+                "existing experiment_config.json does not exactly match this resume"
+            )
     output_dir.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        json.dumps(experiment_config, indent=2) + "\n", encoding="utf-8"
-    )
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
@@ -461,17 +475,15 @@ def main() -> None:
             optimizer=optimizer,
             scheduler=scheduler,
             scaler=scaler,
-            expected_config={
-                "protocol_version": PROTOCOL_VERSION,
-                "protocol_stage": args.protocol_stage,
-                "variant": args.variant,
-                "model_name": args.model_name,
-                "img_size": args.img_size,
-            },
+            expected_config=experiment_config,
             map_location=device,
         )
         start_epoch = int(checkpoint["epoch"])
         logger.info("resumed after epoch %d", start_epoch)
+    if not config_path.exists():
+        config_path.write_text(
+            json.dumps(experiment_config, indent=2) + "\n", encoding="utf-8"
+        )
 
     for epoch_index in range(start_epoch, args.epochs):
         model.train()

@@ -151,7 +151,7 @@ hard-coded modality semantics in v1.
 - **E -- D plus segment-aware PAA:** same D model with same-SLIC-neighbor PAA
   enabled at scales 1, 3, and 5.
 
-## Proposed category-held-out ZSAD protocol
+## Locked category-held-out ZSAD protocol
 
 This split was selected from sample counts, modality visibility, material, and
 shape metadata before any model result was available.
@@ -214,6 +214,15 @@ spring_pad, zipper`
 - Pixel maps remain RGB patch-derived. The wording is: the extension "preserves
   the CLIP-based zero-shot scoring pathway," not that it guarantees zero-shot
   generalization.
+- Development metrics are macro-averaged across `plastic_cylinder` and `screw`.
+  The predeclared checkpoint-selection score is the mean of (a) macro image
+  AUROC using MoECLIP's industrial 0.5 detection + 0.5 max-patch rule and (b)
+  macro RGB-pixel AUROC. Exact ties select the earliest epoch.
+- Detection-only image AUROC/AP and RGB-pixel AP are reported alongside the
+  selection metrics. IR-only anomalies enter image metrics but are excluded
+  from RGB-pixel metrics; they are never assigned fabricated RGB masks.
+- The final unseen stage accepts one fixed checkpoint only. It cannot scan final
+  epochs or select a checkpoint using `D_u`.
 
 ## Implementation status
 
@@ -225,7 +234,7 @@ spring_pad, zipper`
 - `model/thermal_branch.py::ThermalEncoder`: 1.12M-parameter, four-block local
   thermal encoder. A 518x518 one-channel tensor produces four patch-only
   37x37 taps with width 256. It has no CLS token, no unregistered positional
-  tensor, and is not yet connected to MoECLIP.
+  tensor, and supplies conditioning taps only to the region-context modules.
 - `tests/test_thermal_encoder.py`: patch-count, input-contract, gradient,
   parameter-budget, and state-dict round-trip tests.
 - `model/region_context.py`: modal-label reduction from RGB SLIC pixels to the
@@ -278,6 +287,12 @@ spring_pad, zipper`
   `train.py`/`test.py` behavior is not silently changed.
 - `mulsen_checkpoint.py`: strict component, optimizer, scheduler, scaler,
   experiment-config, and RNG checkpointing with atomic replacement.
+- `evaluate_mulsen.py`: reconstructs architecture only from checkpoint config,
+  evaluates the locked category subset, keeps image/RGB-pixel label semantics
+  separate, records checkpoint hashes and per-sample score provenance, and
+  forbids multi-checkpoint selection on final unseen categories.
+- `tests/test_evaluate_mulsen.py`: constant-score stability, IR-only exclusion
+  from RGB-pixel metrics, inclusion in image metrics, and selection-score tests.
 - New MulSen runs default to a small random base router to avoid deterministic
   zero-logit Top-k ties; `router_init=zero` remains the default in `MoECLIP`
   itself for released RGB-path compatibility. The context residual remains
@@ -428,6 +443,5 @@ on full A/B/D runs; no model training has been run.
   they must be recomputed from normal training images in final `D_s` only.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next gate: implement leakage-safe validation metrics/checkpoint selection on
-  the two held-out development categories, then give the user the prioritized
-  A/B/D development-training commands.
+- Next gate: finish offline evaluator review, then give the user the prioritized
+  A/B/D development-training and validation commands.
