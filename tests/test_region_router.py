@@ -55,6 +55,17 @@ class RegionRouterTest(unittest.TestCase):
         torch.testing.assert_close(with_context, without_context)
         self.assertEqual(router.context_gate.weight.abs().sum().item(), 0.0)
 
+    def test_random_base_router_is_explicit_and_context_stays_zero(self) -> None:
+        router = BaseIndependentMoE(
+            d_model=16,
+            config=_config(),
+            use_fofs=False,
+            router_context_dim=8,
+            base_router_init="normal",
+        )
+        self.assertGreater(float(router.gate.weight.abs().sum()), 0.0)
+        self.assertEqual(float(router.context_gate.weight.abs().sum()), 0.0)
+
     def test_configurable_context_subset_masks_only_logit_residual(self) -> None:
         router = self._router(num_context_experts=2)
         hidden = torch.randn(3, 1, 16)

@@ -123,10 +123,14 @@ class BaseIndependentMoE(nn.Module):
         use_fofs: bool = True,
         router_context_dim: Optional[int] = None,
         num_context_experts: Optional[int] = None,
+        base_router_init: str = "zero",
     ):
         super().__init__()
         self.config = config
         self.d_model = d_model
+        if base_router_init not in {"zero", "normal"}:
+            raise ValueError("base_router_init must be 'zero' or 'normal'")
+        self.base_router_init = base_router_init
         
         self.gate = nn.Linear(d_model, config.num_experts_, bias=False)
         
@@ -200,7 +204,12 @@ class BaseIndependentMoE(nn.Module):
         return fixed_A_matrices
 
     def init_custom_weights(self):
-        nn.init.zeros_(self.gate.weight)
+        if self.base_router_init == "zero":
+            nn.init.zeros_(self.gate.weight)
+        else:
+            nn.init.normal_(
+                self.gate.weight, std=float(self.config.router_init_range_)
+            )
         if hasattr(self, "context_gate"):
             nn.init.zeros_(self.context_gate.weight)
 
@@ -331,6 +340,7 @@ class MoECLIP(nn.Module):
         moe_lora_alpha: int = 16,
         moe_num_experts: int = 4,
         moe_top_k: int = 2,
+        router_init: str = "zero",
         use_fofs: bool = True,
         moe_layers: Optional[List[int]] = None,
         relu: bool = True,
@@ -433,6 +443,7 @@ class MoECLIP(nn.Module):
                     region_context_dim if self.use_context_routing else None
                 ),
                 num_context_experts=num_context_experts,
+                base_router_init=router_init,
             )
             for _ in self.moe_layers
         ])

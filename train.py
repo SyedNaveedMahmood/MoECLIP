@@ -48,13 +48,6 @@ def save_checkpoint(model: nn.Module, optimizer: torch.optim.Optimizer, epoch: i
         "text_adapter": model.text_adapter.state_dict(),
         "image_adapter": model.image_adapter.state_dict(),
     }
-    if getattr(model, "use_thermal", False):
-        checkpoint["thermal_branch"] = model.thermal_branch.state_dict()
-        checkpoint["thermal_adapter"] = model.thermal_adapter.state_dict()
-        checkpoint["fusion_gates"] = {
-            "seg_gate_logits": model.seg_gate_logits.detach().cpu(),
-            "det_gate": model.det_gate.state_dict(),
-        }
     
     ckp_path = os.path.join(save_path, f"moe_epoch_{epoch + 1}.pth")
     torch.save(checkpoint, ckp_path)
@@ -77,7 +70,6 @@ def train_adapter(
     logger: logging.Logger,
     balance_loss_lambda: float,
     etf_loss_lambda: float,
-    align_loss_lambda: float = 0.0,
 ):
 
     for epoch in range(start_epoch, end_epoch):
@@ -102,12 +94,7 @@ def train_adapter(
                 dim=0,
             )
             
-            thermal = input_data.get("thermal") if getattr(adapted_model, "use_thermal", False) else None
-            if thermal is not None:
-                thermal = thermal.to(device)
-
-            outputs = adapted_model(image, thermal=thermal, return_align=True)
-            patch_features, det_feature, aux_loss, special_loss, align_pair = outputs
+            patch_features, det_feature, aux_loss, special_loss = adapted_model(image)
             loss = 0.0
             det_feature = det_feature.unsqueeze(1)  # (B,1,D)
             cls_preds = torch.matmul(det_feature, epoch_text_feature)[:, 0]
@@ -122,18 +109,6 @@ def train_adapter(
             loss += aux_loss * balance_loss_lambda
             loss += special_loss * etf_loss_lambda
 
-            if align_pair is not None and align_loss_lambda > 0:
-                # cross-modal alignment on globally pooled paired features,
-                # weighted toward normal samples (low mask coverage)
-                f_rgb, f_t = align_pair
-                w = (1.0 - mask.mean(dim=(1, 2, 3))).clamp(min=0.0).to(f_rgb.dtype)
-                cos = F.cosine_similarity(f_rgb, f_t, dim=-1)
-                align_loss = ((1.0 - cos) * w).mean()
-                loss += align_loss_lambda * align_loss
-                pbar.set_postfix({
-                    "loss": loss.item(),
-                    "align": float(align_loss.item()),
-                })
             # backward
             optimizer.zero_grad()
             loss.backward()
@@ -179,12 +154,6 @@ def main():
     parser.add_argument("--no_use_fofs", action="store_false", help="Use fixed-A LoRA partitioning (default: True)")
     parser.add_argument("--balance_loss_lambda", type=float, default=0.01, help="Weight for auxiliary (load balancing) loss")
     parser.add_argument("--etf_loss_lambda", type=float, default=0.01, help="Weight for ETF Loss")
-    # MoE-TwinCLIP (RGB-Thermal)
-    parser.add_argument("--use_thermal", action="store_true", help="Enable RGB-T dual-stream training")
-    parser.add_argument("--thermal_depth", type=int, default=4, help="Thermal branch depth (blocks)")
-    parser.add_argument("--num_shared_experts", type=int, default=1, help="Experts shared across modalities")
-    parser.add_argument("--modality_dropout", type=float, default=0.3, help="Prob of dropping the thermal stream per step")
-    parser.add_argument("--align_loss_lambda", type=float, default=0.1, help="Weight for cross-modal alignment loss")
     parser.add_argument(
         "--moe_layers",
         type=str,
@@ -279,10 +248,6 @@ def main():
         moe_top_k=args.moe_top_k,
         moe_layers=moe_layers,
         relu=args.relu,
-        use_thermal=args.use_thermal,
-        thermal_depth=args.thermal_depth,
-        num_shared_experts=args.num_shared_experts,
-        modality_dropout=args.modality_dropout,
     ).to(device)
     model.eval()
     
@@ -313,24 +278,6 @@ def main():
             param.requires_grad = True
         params_to_train.append({"params": model.image_adapter.parameters()})
 
-    if args.use_thermal:
-        for module_name in ["thermal_branch", "thermal_adapter"]:
-            module = getattr(model, module_name)
-            for param in module.parameters():
-                param.requires_grad = True
-            params_to_train.append({"params": module.parameters()})
-        model.seg_gate_logits.requires_grad = True
-        params_to_train.append({"params": [model.seg_gate_logits]})
-        for param in model.det_gate.parameters():
-            param.requires_grad = True
-        params_to_train.append({"params": model.det_gate.parameters()})
-        # put ONLY the MoE adapters in train mode so the ETF / load-balance
-        # losses activate (global .train() would trigger PatchDropout and
-        # break PAA; the frozen encoder must stay in eval).
-        for m in model.image_adapter["moe_adapters"]:
-            m.train()
-        logger.info("MoE-TwinCLIP: %d trainable thermal/fusion parameter groups added",
-                    4)
     
     optimizer = torch.optim.Adam(
         params_to_train,
@@ -349,13 +296,6 @@ def main():
         
         model.text_adapter.load_state_dict(checkpoint["text_adapter"])
         model.image_adapter.load_state_dict(checkpoint["image_adapter"])
-        if getattr(model, "use_thermal", False) and "thermal_branch" in checkpoint:
-            model.thermal_branch.load_state_dict(checkpoint["thermal_branch"])
-            model.thermal_adapter.load_state_dict(checkpoint["thermal_adapter"])
-            model.seg_gate_logits.data = checkpoint["fusion_gates"]["seg_gate_logits"].to(
-                model.seg_gate_logits.device
-            )
-            model.det_gate.load_state_dict(checkpoint["fusion_gates"]["det_gate"])
         
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"]
@@ -377,7 +317,6 @@ def main():
         args.shot,
         "train",
         logger,
-        use_thermal=args.use_thermal,
     )
     
     logger.info("loading image adaptation dataset ...")
@@ -402,7 +341,6 @@ def main():
         logger=logger,
         balance_loss_lambda=args.balance_loss_lambda,
         etf_loss_lambda=args.etf_loss_lambda,
-        align_loss_lambda=args.align_loss_lambda,
     )
 
 

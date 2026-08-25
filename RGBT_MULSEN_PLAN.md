@@ -1,8 +1,8 @@
 # Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
 
-Status: dataset audit/loader and the end-to-end RGB-only-expert,
-region-conditioned MoECLIP model path are complete in offline smoke tests;
-MulSen-AD training/evaluation CLI integration is not started.
+Status: dataset audit/loader, end-to-end RGB-only-expert model, locked protocol,
+and dedicated training/checkpoint path are complete in offline smoke tests.
+Thermal statistics, real ViT-L/14 smoke, training, and evaluation have not run.
 
 Last updated: 2026-08-25
 
@@ -256,6 +256,19 @@ spring_pad, zipper`
   user-run streaming normal-IR statistic command plus strict stage/category
   metadata validation. This prevents a development run from loading statistics
   contaminated by validation or unseen categories.
+- `train_mulsen.py`: separate A/B/C/D training CLI. It requires stage-matched
+  IR statistics for B/D, uses the locked dataset composition, keeps frozen CLIP
+  in eval while adapters train, enables AMP on CUDA, and keeps cross-modal
+  alignment disabled in v1.
+- `mulsen_checkpoint.py`: strict component, optimizer, scheduler, scaler,
+  experiment-config, and RNG checkpointing with atomic replacement.
+- New MulSen runs default to a small random base router to avoid deterministic
+  zero-logit Top-k ties; `router_init=zero` remains the default in `MoECLIP`
+  itself for released RGB-path compatibility. The context residual remains
+  zero-initialized in both modes.
+- The exploratory paired pseudo-thermal loader/generator and its obsolete
+  `train.py` flags were removed. The normal released RGB CLI remains available;
+  the new research path is deliberately isolated in `train_mulsen.py`.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -272,6 +285,9 @@ $Py = (Get-Command python).Source
   tests.test_region_router `
   tests.test_region_moeclip `
   tests.test_mulsen_protocol `
+  tests.test_mulsen_stats `
+  tests.test_mulsen_checkpoint `
+  tests.test_train_mulsen `
   tools.test_inspect_mulsen_alignment -v
 
 & $Py tools\inspect_mulsen_alignment.py `
@@ -288,7 +304,8 @@ $Py = (Get-Command python).Source
   --output "data\MulSenAD_official\thermal_stats_development.json"
 ```
 
-No training or evaluation command is defined yet.
+The training CLI is implemented, but a concrete training command is withheld
+until the user-run thermal-statistics step and real-model smoke pass.
 
 ## RESULTS
 
@@ -328,6 +345,10 @@ No training or evaluation command is defined yet.
   plus 251 visible anomalies, development validation is 20 normal plus 56
   visible anomalies, final refit is 885 plus 307, and locked unseen evaluation
   is 50 plus 159. These reproduce the predeclared audit counts.
+- Offline training-loss wiring is finite and differentiable; fixture checkpoint
+  round-trip restores image/MoE/region modules, thermal encoder, text adapter,
+  optimizer, scheduler, config, and deterministic output. This is code evidence,
+  not evidence that a MulSen model has trained successfully.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
@@ -349,7 +370,7 @@ No training or evaluation command is defined yet.
   deliberately not been run by the agent.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next implementation gate: MulSen-AD protocol/CLI/checkpoint integration,
-  followed by a real ViT-L/14 batch-one forward/backward and CUDA-memory smoke.
-  No segment-aware PAA until this region-conditioned path passes that real-model
-  gate.
+- Next gate: the user runs the development thermal-statistics command and
+  returns its JSON. Then run a real ViT-L/14 batch-one forward/backward and
+  CUDA-memory smoke. No segment-aware PAA until this region-conditioned path
+  passes that real-model gate.
