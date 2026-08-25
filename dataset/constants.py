@@ -1,4 +1,4 @@
-BASE_PATH = "/data"
+BASE_PATH = "C:/Users/user7/Desktop/moeclip/data"
 DATA_PATH = {
     "Brain": f"{BASE_PATH}/Brain",
     "Liver": f"{BASE_PATH}/Liver",
@@ -171,3 +171,7 @@ PROMPTS = {
         "a photo of {}.",
     ],
 }
+
+# MoE-TwinCLIP: registered thermal counterpart root for each dataset.
+# Thermal files mirror the RGB relative paths (data/<name>_T/<relative/path>).
+THERMAL_PATH = {k: f"{BASE_PATH}/{k}_T" for k in DATA_PATH}

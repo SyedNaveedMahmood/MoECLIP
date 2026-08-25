@@ -182,6 +182,12 @@ def main():
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--image_adapt_weight", type=float, default=0.1)
     parser.add_argument("--save_path", default="ckpt/baseline")
+    parser.add_argument(
+        "--eval_epoch",
+        type=int,
+        default=None,
+        help="If set, evaluate only the checkpoint of this epoch instead of all epochs",
+    )
     args = parser.parse_args()
     # ========================================================
     setup_seed(args.seed)
@@ -242,6 +248,8 @@ def main():
         glob(args.save_path + "/moe_epoch_*.pth"),
         key=extract_epoch_number
     )
+    if args.eval_epoch is not None:
+        files = [f for f in files if extract_epoch_number(f) == args.eval_epoch]
 
     logger.info("-----------------------------------------------")
     logger.info(f"dataset: {args.dataset}")

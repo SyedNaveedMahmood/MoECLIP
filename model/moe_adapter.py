@@ -107,7 +107,15 @@ class SimpleLoraExpert(nn.Module):
         return lora_output
     
 class BaseIndependentMoE(nn.Module):
-    def __init__(self, d_model: int, config, use_fofs: bool = True):
+    def __init__(
+        self,
+        d_model: int,
+        config,
+        use_fofs: bool = True,
+        num_shared_experts: int = 0,
+        num_thermal_experts: int = 0,
+        use_cond: bool = False,
+    ):
         super().__init__()
         self.config = config
         self.d_model = d_model
@@ -123,6 +131,24 @@ class BaseIndependentMoE(nn.Module):
             lora_A_weight = fixed_A_weights[i] if use_fofs else None
             expert = SimpleLoraExpert(d_model, d_model, config, weight=(lora_A_weight, None))
             self.experts.append(expert)
+        
+        # --- MoE-TwinCLIP: modality-aware expert partitioning ---
+        # experts [0, n_rgb)                 -> rgb-private
+        # experts [n_rgb, n_rgb+n_shared)    -> shared (both modalities)
+        # experts [n_rgb+n_shared, K)        -> thermal-private
+        n_total = config.num_experts_
+        n_shared = min(max(0, num_shared_experts), n_total)
+        n_therm = min(max(0, num_thermal_experts), max(0, n_total - n_shared - 1))
+        n_rgb = n_total - n_shared - n_therm
+        self.expert_groups = {
+            "rgb": list(range(n_rgb)) + list(range(n_rgb, n_rgb + n_shared)),
+            "thermal": list(range(n_rgb + n_shared, n_total))
+            + list(range(n_rgb, n_rgb + n_shared)),
+        }
+        self.use_cond = use_cond
+        if use_cond:
+            # cross-modal conditioning: router sees [own-stream token ; other-stream token]
+            self.cond_proj = nn.Linear(d_model * 2, d_model, bias=False)
         
         self.jitter_noise = getattr(config, "jitter_noise_", 0.0)
         self.init_custom_weights()
@@ -178,7 +204,12 @@ class BaseIndependentMoE(nn.Module):
 
         return expert_outputs_dict
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        cond: Optional[torch.Tensor] = None,
+        expert_group: Optional[str] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         
         if self.jitter_noise > 0 and self.training:
@@ -189,7 +220,19 @@ class BaseIndependentMoE(nn.Module):
         input_dtype = hidden_states.dtype
         hidden_states_flat = hidden_states.reshape(-1, hidden_dim)
 
-        router_logits = self.gate(hidden_states_flat)
+        # --- MoE-TwinCLIP: cross-modal conditioned routing + expert-group masking ---
+        if self.use_cond and cond is not None:
+            cond_flat = cond.reshape(-1, hidden_dim).to(hidden_states_flat.dtype)
+            router_in = self.cond_proj(torch.cat([hidden_states_flat, cond_flat], dim=-1))
+        else:
+            router_in = hidden_states_flat
+
+        router_logits = self.gate(router_in)
+        if expert_group is not None:
+            group_mask = torch.full_like(router_logits, float("-inf"))
+            group_mask[:, self.expert_groups[expert_group]] = 0.0
+            router_logits = router_logits + group_mask
+
         router_probs = F.softmax(router_logits, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(router_probs, self.config.top_k_, dim=-1)
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
@@ -200,7 +243,7 @@ class BaseIndependentMoE(nn.Module):
         all_expert_outputs = None
 
         if self.training:
-            alpha = getattr(self.config, "router_aux_loss_coef", 0.0)
+            alpha = getattr(self.config, "router_aux_loss_coef_", 0.0)
             if alpha > 0:
                 gate_sum = router_probs.sum(dim=0)
                 mean, std = gate_sum.mean(), gate_sum.std()
@@ -255,6 +298,11 @@ class MoECLIP(nn.Module):
         use_fofs: bool = True,
         moe_layers: Optional[List[int]] = None,
         relu: bool = True,
+        # --- MoE-TwinCLIP options ---
+        use_thermal: bool = False,
+        thermal_depth: int = 4,
+        num_shared_experts: int = 1,
+        modality_dropout: float = 0.3,
         **kwargs,
     ):
         super().__init__()
@@ -301,8 +349,16 @@ class MoECLIP(nn.Module):
         )
 
 
+        n_therm_experts = 1 if use_thermal else 0
         moe_adapters = nn.ModuleList([
-            BaseIndependentMoE(d_model=d_model, config=moe_config, use_fofs=use_fofs)
+            BaseIndependentMoE(
+                d_model=d_model,
+                config=moe_config,
+                use_fofs=use_fofs,
+                num_shared_experts=num_shared_experts if use_thermal else 0,
+                num_thermal_experts=n_therm_experts,
+                use_cond=use_thermal,
+            )
             for _ in self.moe_layers
         ])
 
@@ -322,6 +378,28 @@ class MoECLIP(nn.Module):
         self.text_adapter = nn.ModuleList(
             [SimpleProj(768, 768, relu=True)]
         )
+
+        # --- MoE-TwinCLIP: thermal branch + readout + fusion gates ---
+        self.use_thermal = use_thermal
+        self.modality_dropout = modality_dropout
+        if use_thermal:
+            from .thermal_branch import ThermalTransformer
+
+            self.thermal_branch = ThermalTransformer(
+                width=d_model, depth=thermal_depth, heads=8, mlp_ratio=2.0, patch_size=14
+            )
+            thermal_seg_proj = nn.ModuleList(
+                [SimpleProj(1024, 768, relu) for _ in range(num_seg_projs)]
+            )
+            thermal_det_proj = ConvAdapterProj(1024, 768)
+            self.thermal_adapter = nn.ModuleDict(
+                {"seg_proj": thermal_seg_proj, "det_proj": thermal_det_proj}
+            )
+            # fusion gates (init ~ -2 -> sigmoid ~= 0.12 -> mostly RGB at start)
+            self.seg_gate_logits = nn.Parameter(torch.full((num_seg_projs,), -2.0))
+            self.det_gate = nn.Sequential(
+                nn.Linear(768 * 2, 256), nn.GELU(), nn.Linear(256, 1)
+            )
         
     @staticmethod
     def _gaussian_kernel(size: int, sigma: float = 2.0) -> torch.Tensor:
@@ -385,7 +463,98 @@ class MoECLIP(nn.Module):
         else:
             raise ValueError("modality must be visual")
 
-    def forward(self, x):
+    def forward(self, x, thermal=None, return_align=False):
+        """Dispatch: thermal=None -> original MoECLIP path (unchanged behavior)."""
+        if not getattr(self, "use_thermal", False) or thermal is None:
+            seg_tokens, det_token, aux_loss, special_loss = self._forward_rgb(x)
+            if return_align:
+                return seg_tokens, det_token, aux_loss, special_loss, None
+            return seg_tokens, det_token, aux_loss, special_loss
+        return self._forward_rgb_thermal(x, thermal, return_align)
+
+    def _forward_rgb_thermal(self, x, thermal, return_align=False):
+        device = x.device
+
+        # modality dropout: occasionally train RGB-only for graceful degradation
+        use_t = True
+        if (
+            self.training
+            and self.modality_dropout > 0
+            and torch.rand(1).item() < self.modality_dropout
+        ):
+            use_t = False
+            thermal = torch.zeros_like(x)
+
+        # Interleaved execution: the thermal branch advances one block right
+        # before each CLIP MoE layer, so every MoE-updated thermal tap feeds
+        # all subsequent thermal computation (nothing is discarded).
+        self.thermal_branch.reset_step()
+        t_state = self.thermal_branch.embed(thermal.to(device))
+
+        # ---- RGB stream preamble (identical to _forward_rgb) ----
+        x = self.image_encoder.conv1(x)
+        x = x.reshape(x.shape[0], x.shape[1], -1)
+        x = x.permute(0, 2, 1)
+        x = torch.cat(
+            [
+                self.image_encoder.class_embedding.to(x.dtype)
+                + torch.zeros(
+                    x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=device
+                ),
+                x,
+            ],
+            dim=1,
+        )
+        x = x + self.image_encoder.positional_embedding.to(x.dtype)
+        x = self.image_encoder.patch_dropout(x)
+        x = self.image_encoder.ln_pre(x)
+        x = x.permute(1, 0, 2)
+
+        tokens = []
+        total_load_balance_loss = torch.tensor(0.0, device=device)
+        total_etf_loss = torch.tensor(0.0, device=device)
+
+        for i in range(24):
+            x, attn, _ = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+
+            if i in self.moe_layers:
+                t_j = self.thermal_branch.step(t_state)
+                moe_idx = self.moe_layers.index(i)
+                moe = self.image_adapter["moe_adapters"][moe_idx]
+
+                # cross-modal conditioned routing with expert-group masking;
+                # both streams share the same expert weights.
+                moe_out_r, lb_r, eo_r, _ = moe(x, cond=t_j, expert_group="rgb")
+                moe_out_t, lb_t, eo_t, _ = moe(t_j, cond=x, expert_group="thermal")
+
+                if eo_r is not None:
+                    total_etf_loss += etf_loss(eo_r)
+                if eo_t is not None:
+                    total_etf_loss += etf_loss(eo_t)
+
+                moe_out_r_n = moe_out_r * x.norm(dim=-1, keepdim=True) / (
+                    moe_out_r.norm(dim=-1, keepdim=True) + 1e-6
+                )
+                moe_out_t_n = moe_out_t * t_j.norm(dim=-1, keepdim=True) / (
+                    moe_out_t.norm(dim=-1, keepdim=True) + 1e-6
+                )
+                x = self.i_w * moe_out_r_n + (1 - self.i_w) * x
+                t_state = self.i_w * moe_out_t_n + (1 - self.i_w) * t_j
+
+                total_load_balance_loss += lb_r + lb_t
+
+            if i + 1 in self.levels:
+                tokens.append(x)
+
+        if self.use_paa:
+            tokens = self._aggregate_neighbors(tokens)
+
+        return self._fuse_readouts(
+            x, tokens, t_state, use_t, total_load_balance_loss, total_etf_loss,
+            return_align,
+        )
+
+    def _forward_rgb(self, x):
         x = self.image_encoder.conv1(x)
         x = x.reshape(x.shape[0], x.shape[1], -1)
         x = x.permute(0, 2, 1)
@@ -463,6 +632,78 @@ class MoECLIP(nn.Module):
         special_loss = total_etf_loss
         
         return seg_tokens, det_token, total_aux_loss, special_loss
+
+    def _fuse_readouts(
+        self, x, tokens, t_final, use_t, total_load_balance_loss, total_etf_loss,
+        return_align=False,
+    ):
+        device = x.device
+
+        # ---- RGB readout (identical to _forward_rgb tail) ----
+        x = x.permute(1, 0, 2)
+        tokens = [t.permute(1, 0, 2) for t in tokens]
+        tokens = [self.image_encoder.ln_post(t) for t in tokens]
+        rgb_patch_tokens = [t[:, 1:, :] for t in tokens]
+
+        if self.use_paa and self.seg_proj_sharing_strategy == "shared":
+            seg_tokens_rgb = [
+                self.image_adapter["seg_proj"][i // 3](t)
+                for i, t in enumerate(rgb_patch_tokens)
+            ]
+        else:
+            seg_tokens_rgb = [
+                self.image_adapter["seg_proj"][i](t)
+                for i, t in enumerate(rgb_patch_tokens)
+            ]
+        seg_tokens_rgb = [F.normalize(t, dim=-1) for t in seg_tokens_rgb]
+        det_rgb = F.normalize(
+            self.image_adapter["det_proj"](rgb_patch_tokens[-3]), dim=-1
+        ).mean(1)
+
+        if not use_t:
+            # modality-dropped step: pure RGB output
+            if return_align:
+                return seg_tokens_rgb, det_rgb, total_load_balance_loss, total_etf_loss, None
+            return seg_tokens_rgb, det_rgb, total_load_balance_loss, total_etf_loss
+
+        # ---- Thermal readout (shared ln_post keeps features text-aligned) ----
+        t_tok = self.image_encoder.ln_post(t_final)   # (B, L, C) batch-first
+        t_patch = t_tok[:, 1:, :]
+        shared_idx = self.use_paa and self.seg_proj_sharing_strategy == "shared"
+        seg_tokens_t_raw = [
+            self.thermal_adapter["seg_proj"][(k // 3) if shared_idx else k](t_patch)
+            for k in range(len(seg_tokens_rgb))
+        ]
+        seg_tokens_t = [F.normalize(s, dim=-1) for s in seg_tokens_t_raw]
+        det_t = F.normalize(self.thermal_adapter["det_proj"](t_patch), dim=-1).mean(1)
+
+        # ---- Uncertainty-gated convex fusion ----
+        # one learned gate per projection level; PAA "shared" expands each
+        # level into 3 radius variants sharing the same projection (k // 3)
+        g = torch.sigmoid(self.seg_gate_logits).to(seg_tokens_rgb[0].dtype)
+        seg_tokens_fused = []
+        for k, (s_r, s_t) in enumerate(zip(seg_tokens_rgb, seg_tokens_t)):
+            g_k = g[(k // 3) if shared_idx else k]
+            seg_tokens_fused.append(
+                F.normalize(g_k * s_r + (1.0 - g_k) * s_t, dim=-1)
+            )
+        gd = torch.sigmoid(self.det_gate(torch.cat([det_rgb, det_t], dim=-1)))
+        det_token = F.normalize(gd * det_rgb + (1.0 - gd) * det_t, dim=-1)
+
+        align_pair = (
+            F.normalize(rgb_patch_tokens[-3].mean(dim=1), dim=-1),
+            F.normalize(t_patch.mean(dim=1), dim=-1),
+        )
+
+        if return_align:
+            return (
+                seg_tokens_fused,
+                det_token,
+                total_load_balance_loss,
+                total_etf_loss,
+                align_pair,
+            )
+        return seg_tokens_fused, det_token, total_load_balance_loss, total_etf_loss
 
     def encode_text(self, text, adapt_text=True):
         if not adapt_text:

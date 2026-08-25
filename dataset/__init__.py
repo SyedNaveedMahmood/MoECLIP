@@ -171,6 +171,73 @@ class BaseSingleClassDataset(Dataset):
         return inputs
 
 
+class PairedBaseDataset(BaseDataset):
+    """BaseDataset + a registered thermal channel for MoE-TwinCLIP.
+
+    Thermal files live under a parallel root (data/<name>_T) and mirror the
+    RGB relative paths exactly. The thermal image is concatenated into the
+    joint geometric transform tensor (img 3ch + mask 1ch + thermal 1ch = 5ch)
+    so rotation/affine/flip augmentations stay perfectly registered.
+    """
+
+    def __init__(
+        self,
+        data_path: str,
+        thermal_path: str,
+        meta_path: str,
+        img_size: int,
+        text: bool = False,
+    ):
+        super().__init__(data_path, meta_path, img_size, text)
+        self.thermal_root = thermal_path
+        self.transform_thermal = transforms.Compose(
+            [
+                transforms.Resize((img_size, img_size), Image.BICUBIC),
+                transforms.ToTensor(),
+            ]
+        )
+
+    def __getitem__(self, idx):
+        meta = self.meta[idx]
+        img_path = os.path.join(self.data_path, meta["image_path"])
+        pil_img = Image.open(img_path).convert("RGB")
+        img = self.transform_x(pil_img)
+
+        # thermal counterpart (grayscale, single channel)
+        thermal_file = os.path.join(self.thermal_root, meta["image_path"])
+        if os.path.exists(thermal_file):
+            th_img = Image.open(thermal_file).convert("L")
+        else:
+            th_img = Image.new("L", pil_img.size)
+        th = self.transform_thermal(th_img)  # (1, H, W)
+
+        if meta["label"]:
+            mask_path = os.path.join(self.data_path, meta["mask_path"])
+            mask = Image.open(mask_path).convert("L")
+            mask = self.transform_mask(mask)
+            mask = (mask != 0).float()
+        else:
+            mask = torch.zeros([1, self.img_size, self.img_size])
+
+        random_transform = transforms.Compose(self.transforms_list)
+        transform_tensor = torch.cat([img, mask, th], dim=0)  # (5, H, W)
+        assert transform_tensor.shape[0] == 5
+        transform_tensor = random_transform(transform_tensor)
+        img = transform_tensor[0:3, :, :]
+        mask = transform_tensor[3:4, :, :]
+        th = transform_tensor[4:5, :, :]
+
+        inputs = {
+            "image": img,
+            "thermal": th,
+            "mask": mask,
+            "label": torch.tensor(meta["label"]).to(torch.int64),
+            "file_name": meta["image_path"],
+            "class_name": meta["class_name"],
+        }
+        return inputs
+
+
 def get_dataset(
     dataset_name: str,
     img_size: int,
@@ -178,6 +245,7 @@ def get_dataset(
     shot: int = -1,
     stage: str = "train",
     logger=None,
+    use_thermal: bool = False,
 ):
     if "Med" not in dataset_name:
         assert dataset_name in DATA_PATH, (
@@ -196,8 +264,21 @@ def get_dataset(
             )
 
         data_path = DATA_PATH[dataset_name.split("-")[0]]
-        text_dataset = BaseDataset(data_path, meta_path, img_size, text=True)
-        image_dataset = BaseDataset(data_path, meta_path, img_size, text=True)
+        text_dataset = None
+        image_dataset = None
+        if use_thermal:
+            from .constants import THERMAL_PATH
+
+            thermal_path = THERMAL_PATH[dataset_name.split("-")[0]]
+            text_dataset = PairedBaseDataset(
+                data_path, thermal_path, meta_path, img_size, text=True
+            )
+            image_dataset = PairedBaseDataset(
+                data_path, thermal_path, meta_path, img_size, text=True
+            )
+        else:
+            text_dataset = BaseDataset(data_path, meta_path, img_size, text=True)
+            image_dataset = BaseDataset(data_path, meta_path, img_size, text=True)
         return text_dataset, image_dataset
     elif stage == "test":
         meta_path = os.path.join("./dataset/metadata", dataset_name, "full-shot.jsonl")
