@@ -188,6 +188,10 @@ def build_model_from_config(
         region_coordinate_bias=float(config["region_coordinate_bias"]),
         region_coordinate_sigma=float(config["region_coordinate_sigma"]),
         num_context_experts=config["num_context_experts"],
+        # ``use_global_context`` was introduced after the released v1
+        # checkpoints.  Missing means the original v1 path, preserving
+        # reconstruction of legacy configs without weakening required keys.
+        use_global_context=bool(config.get("use_global_context", False)),
         modality_dropout=float(config["modality_dropout"]),
         stable_adapter_norm=bool(config["stable_adapter_norm"]),
         adapter_norm_floor=float(config["adapter_norm_floor"]),
@@ -248,6 +252,7 @@ def category_metrics(
     # detection scores normally remain in their native [0,1] range.
     normalized_maps = _normalize_if_outside_unit(pixel_maps)
     patch_max_scores = normalized_maps.reshape(len(pixel_maps), -1).max(axis=1)
+    raw_patch_max_scores = pixel_maps.reshape(len(pixel_maps), -1).max(axis=1)
     normalized_detection = _normalize_if_outside_unit(detection_scores)
     combined_scores = 0.5 * patch_max_scores + 0.5 * normalized_detection
     valid_masks = rgb_masks[pixel_valid]
@@ -261,6 +266,119 @@ def category_metrics(
         "rgb_pixel": _binary_metrics(valid_masks, valid_maps),
         "combined_scores": combined_scores.tolist(),
         "detection_scores": detection_scores.tolist(),
+        # These per-sample values use exactly the same category-local
+        # normalization as the historical combined score.  They are retained
+        # for diagnostic reporting only and never affect checkpoint selection.
+        "patch_max_scores_raw": raw_patch_max_scores.tolist(),
+        "patch_max_scores_normalized": patch_max_scores.tolist(),
+    }
+
+
+def _score_statistics(values: Sequence[float]) -> Dict[str, object]:
+    """Return finite, JSON-friendly distribution statistics for scores."""
+
+    array = np.asarray(values, dtype=np.float64).reshape(-1)
+    if array.size == 0:
+        return {"sample_count": 0, "values": []}
+    if not np.isfinite(array).all():
+        raise FloatingPointError("diagnostic scores contain non-finite values")
+    return {
+        "sample_count": int(array.size),
+        "mean": float(array.mean()),
+        "std": float(array.std()),
+        "min": float(array.min()),
+        "q25": float(np.quantile(array, 0.25)),
+        "median": float(np.quantile(array, 0.50)),
+        "q75": float(np.quantile(array, 0.75)),
+        "max": float(array.max()),
+        "values": array.tolist(),
+    }
+
+
+def _sample_modality_subgroup(prediction: Mapping[str, object]) -> str:
+    """Classify a sample using modality labels, never masks or predictions."""
+
+    rgb = int(prediction["label_rgb"])
+    thermal = int(prediction["label_thermal"])
+    if rgb == 0 and thermal == 0:
+        return "good"
+    if rgb == 1 and thermal == 0:
+        return "rgb_only"
+    if rgb == 0 and thermal == 1:
+        return "ir_only"
+    if rgb == 1 and thermal == 1:
+        return "rgb_ir"
+    raise ValueError(
+        f"invalid modality labels: label_rgb={rgb}, label_thermal={thermal}"
+    )
+
+
+def subgroup_diagnostics(
+    predictions: Sequence[Mapping[str, object]],
+) -> Dict[str, object]:
+    """Summarize image scores by RGB/IR visibility subgroup.
+
+    This is deliberately diagnostic-only.  The existing combined score and
+    selection metric remain implemented by ``category_metrics`` and
+    ``summarize_categories`` unchanged.
+    """
+
+    required = {
+        "category",
+        "label_rgb",
+        "label_thermal",
+        "label_rgbt",
+        "detection_score",
+        "patch_max_score_raw",
+        "patch_max_score_normalized",
+        "combined_score",
+    }
+    groups = {name: [] for name in ("good", "rgb_only", "ir_only", "rgb_ir")}
+    by_category: Dict[str, Dict[str, list]] = {}
+    for prediction in predictions:
+        missing = required.difference(prediction)
+        if missing:
+            raise KeyError(f"prediction is missing diagnostic fields: {sorted(missing)}")
+        subgroup = _sample_modality_subgroup(prediction)
+        groups[subgroup].append(prediction)
+        category = str(prediction["category"])
+        by_category.setdefault(category, {name: [] for name in groups})[subgroup].append(
+            prediction
+        )
+
+    def summarize(items: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+        labels = [int(item["label_rgbt"]) for item in items]
+        return {
+            "sample_count": len(items),
+            "anomalous_images": int(sum(labels)),
+            "detection_score": _score_statistics(
+                [float(item["detection_score"]) for item in items]
+            ),
+            "patch_max_score_raw": _score_statistics(
+                [float(item["patch_max_score_raw"]) for item in items]
+            ),
+            "patch_max_score_normalized": _score_statistics(
+                [float(item["patch_max_score_normalized"]) for item in items]
+            ),
+            "combined_score": _score_statistics(
+                [float(item["combined_score"]) for item in items]
+            ),
+        }
+
+    return {
+        "subgroups": {name: summarize(items) for name, items in groups.items()},
+        "category_subgroups": {
+            category: {
+                name: summarize(items) for name, items in subgroup_items.items()
+            }
+            for category, subgroup_items in sorted(by_category.items())
+        },
+        "detection_only": _binary_metrics(
+            np.asarray([int(item["label_rgbt"]) for item in predictions]),
+            np.asarray([float(item["detection_score"]) for item in predictions]),
+        )
+        if predictions
+        else None,
     }
 
 
@@ -378,6 +496,7 @@ def evaluate_checkpoint(
             ).cpu().numpy()
             labels = batch["label_rgbt"].cpu().numpy()
             labels_rgb = batch["label_rgb"].cpu().numpy()
+            labels_thermal = batch["label_thermal"].cpu().numpy()
             masks = batch["mask_rgb"][:, 0].cpu().numpy().astype(np.uint8)
             anomaly_types = list(batch["anomaly_type"])
             sample_keys = list(batch["sample_key"])
@@ -406,6 +525,7 @@ def evaluate_checkpoint(
                         "anomaly_type": anomaly_types[index],
                         "label_rgbt": int(labels[index]),
                         "label_rgb": int(labels_rgb[index]),
+                        "label_thermal": int(labels_thermal[index]),
                         "rgb_pixel_metric_included": bool(pixel_is_valid),
                         "detection_score": float(detection_scores[index]),
                         "patch_max_score_raw": float(pixel_maps[index].max()),
@@ -422,9 +542,24 @@ def evaluate_checkpoint(
         )
         for category, bucket in collected.items()
     }
+    # Annotate predictions only after category-local map normalization is
+    # known.  This preserves the historical category-level score exactly
+    # while making the normalized component inspectable per sample.
+    prediction_offsets: Dict[str, int] = {category: 0 for category in category_results}
+    for prediction in predictions:
+        category = str(prediction["category"])
+        offset = prediction_offsets[category]
+        result = category_results[category]
+        prediction["patch_max_score_normalized"] = float(
+            result["patch_max_scores_normalized"][offset]
+        )
+        prediction["combined_score"] = float(result["combined_scores"][offset])
+        prediction_offsets[category] = offset + 1
+    diagnostics = subgroup_diagnostics(predictions)
     return {
         "categories": category_results,
         "macro": summarize_categories(category_results),
+        "diagnostics": diagnostics,
     }, predictions
 
 
@@ -502,6 +637,7 @@ def main() -> None:
             "pixel_labels": "RGB masks for good and RGB-visible anomalies only; IR-only anomalies excluded",
             "selection": "mean of macro image-combined AUROC and macro RGB-pixel AUROC",
             "tie_break": "earliest epoch",
+            "diagnostics": "detection-only AUROC/AP and modality-subgroup score distributions are diagnostic only and never affect checkpoint selection",
         },
         "experiment_config": config,
         "evaluation_sample_count": len(dataset),
