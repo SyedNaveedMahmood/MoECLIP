@@ -133,6 +133,88 @@ class RoutingStats:
         }
 
 
+class ThermalAttentionStats:
+    """Streaming entropy diagnostics over valid RGB-region attention rows."""
+
+    def __init__(self) -> None:
+        self.region_count = 0
+        self.zero_attention_region_count = 0
+        self.thermal_token_count: Optional[int] = None
+        self.entropy_sum = 0.0
+        self.normalized_entropy_sum = 0.0
+        self.effective_token_sum = 0.0
+        self.normalized_entropy_min = math.inf
+        self.normalized_entropy_max = -math.inf
+
+    def update(self, output) -> None:
+        attention = output.thermal_attention.detach().float()
+        valid_regions = output.pool.valid_regions.detach().bool()
+        if attention.ndim != 3:
+            raise ValueError(
+                "expected thermal attention [batch,regions,tokens], got "
+                f"{tuple(attention.shape)}"
+            )
+        if valid_regions.shape != attention.shape[:2]:
+            raise ValueError(
+                "thermal-attention regions do not match the valid-region mask"
+            )
+        token_count = int(attention.shape[-1])
+        if token_count == 0:
+            self.zero_attention_region_count += int(valid_regions.sum().cpu())
+            return
+        if self.thermal_token_count not in (None, token_count):
+            raise ValueError("thermal token count changed during routing audit")
+        self.thermal_token_count = token_count
+
+        row_sums = attention.sum(dim=-1)
+        active = valid_regions & (row_sums > 0)
+        self.zero_attention_region_count += int((valid_regions & ~active).sum().cpu())
+        probabilities = attention[active]
+        if probabilities.numel() == 0:
+            return
+        probabilities = probabilities / probabilities.sum(dim=-1, keepdim=True)
+        entropy = -(
+            probabilities * probabilities.clamp_min(1e-12).log()
+        ).sum(dim=-1)
+        normalized = (
+            entropy / math.log(token_count)
+            if token_count > 1
+            else torch.zeros_like(entropy)
+        )
+        self.region_count += int(probabilities.shape[0])
+        self.entropy_sum += float(entropy.sum().cpu())
+        self.normalized_entropy_sum += float(normalized.sum().cpu())
+        self.effective_token_sum += float(entropy.exp().sum().cpu())
+        self.normalized_entropy_min = min(
+            self.normalized_entropy_min, float(normalized.min().cpu())
+        )
+        self.normalized_entropy_max = max(
+            self.normalized_entropy_max, float(normalized.max().cpu())
+        )
+
+    def summary(self) -> Optional[Dict[str, object]]:
+        if self.thermal_token_count is None:
+            return None
+        if self.region_count == 0:
+            return {
+                "region_count": 0,
+                "zero_attention_region_count": self.zero_attention_region_count,
+                "thermal_token_count": self.thermal_token_count,
+            }
+        return {
+            "region_count": self.region_count,
+            "zero_attention_region_count": self.zero_attention_region_count,
+            "thermal_token_count": self.thermal_token_count,
+            "mean_entropy_nats": self.entropy_sum / self.region_count,
+            "mean_normalized_entropy": self.normalized_entropy_sum
+            / self.region_count,
+            "min_normalized_entropy": self.normalized_entropy_min,
+            "max_normalized_entropy": self.normalized_entropy_max,
+            "mean_effective_thermal_tokens": self.effective_token_sum
+            / self.region_count,
+        }
+
+
 class RoutingCollector:
     """Forward-pre-hook collector for one sequence-first MoE adapter."""
 
@@ -258,10 +340,24 @@ def main() -> None:
 
     adapters = list(model.image_adapter["moe_adapters"])
     collectors = [RoutingCollector(adapter) for adapter in adapters]
+    region_contexts = (
+        list(model.image_adapter["region_contexts"])
+        if "region_contexts" in model.image_adapter
+        else []
+    )
+    attention_collectors = [ThermalAttentionStats() for _ in region_contexts]
     handles = [
         adapter.register_forward_pre_hook(collector.hook, with_kwargs=True)
         for adapter, collector in zip(adapters, collectors)
     ]
+    handles.extend(
+        module.register_forward_hook(
+            lambda _module, _inputs, output, collector=collector: collector.update(
+                output
+            )
+        )
+        for module, collector in zip(region_contexts, attention_collectors)
+    )
     try:
         with torch.no_grad():
             for batch in tqdm(loader, desc="routing audit", leave=False):
@@ -294,9 +390,17 @@ def main() -> None:
             "soft_load_cv_squared": "population CV^2 of accumulated pre-top-k probabilities",
             "context_logits": "context-gate residual after the configured expert mask",
             "class_context": "zero by v1 design; thermal/region context directly conditions patches only",
+            "thermal_attention_entropy": "mean over valid RGB regions; each region is weighted equally and entropy is normalized by log(thermal token count)",
         },
         "layers": [
-            collector.summary(index, int(config["moe_layers"][index]))
+            {
+                **collector.summary(index, int(config["moe_layers"][index])),
+                "thermal_attention": (
+                    attention_collectors[index].summary()
+                    if index < len(attention_collectors)
+                    else None
+                ),
+            }
             for index, collector in enumerate(collectors)
         ],
     }

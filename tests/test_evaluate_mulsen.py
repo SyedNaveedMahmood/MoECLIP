@@ -90,6 +90,7 @@ class EvaluateMulSenTest(unittest.TestCase):
 
         summary = summarize_categories({"toy_a": result, "toy_b": result})
         self.assertEqual(summary["selection_score"], 1.0)
+        self.assertEqual(summary["macro_image_detection_ap"], 1.0)
 
     def test_final_scope_cannot_select_and_development_ties_choose_earliest(self) -> None:
         validate_evaluation_scope("development", 3)

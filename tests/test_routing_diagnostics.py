@@ -2,10 +2,11 @@
 
 import math
 import unittest
+from types import SimpleNamespace
 
 import torch
 
-from tools.inspect_mulsen_routing import RoutingStats
+from tools.inspect_mulsen_routing import RoutingStats, ThermalAttentionStats
 
 
 class RoutingStatsTest(unittest.TestCase):
@@ -37,6 +38,31 @@ class RoutingStatsTest(unittest.TestCase):
         self.assertEqual(summary["context_changed_top1_fraction"], 1.0)
         self.assertTrue(summary["context_observed"])
         self.assertTrue(math.isfinite(summary["context_to_base_abs_ratio"]))
+
+    def test_thermal_attention_entropy_uses_valid_active_regions(self) -> None:
+        stats = ThermalAttentionStats()
+        output = SimpleNamespace(
+            thermal_attention=torch.tensor(
+                [
+                    [
+                        [0.25, 0.25, 0.25, 0.25],
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, 0.0, 0.0, 0.0],
+                    ]
+                ]
+            ),
+            pool=SimpleNamespace(
+                valid_regions=torch.tensor([[True, True, False]])
+            ),
+        )
+        stats.update(output)
+        summary = stats.summary()
+
+        self.assertEqual(summary["region_count"], 2)
+        self.assertEqual(summary["zero_attention_region_count"], 0)
+        self.assertEqual(summary["thermal_token_count"], 4)
+        self.assertAlmostEqual(summary["mean_normalized_entropy"], 0.5)
+        self.assertAlmostEqual(summary["mean_effective_thermal_tokens"], 2.5)
 
 
 if __name__ == "__main__":

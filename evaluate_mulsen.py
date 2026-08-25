@@ -420,6 +420,14 @@ def summarize_categories(
                 ]
             )
         ),
+        "macro_image_detection_ap": float(
+            np.mean(
+                [
+                    result["image_detection_only"]["average_precision"]
+                    for result in category_results.values()
+                ]
+            )
+        ),
         "macro_rgb_pixel_auroc": macro_pixel,
         "macro_rgb_pixel_ap": float(
             np.mean(
