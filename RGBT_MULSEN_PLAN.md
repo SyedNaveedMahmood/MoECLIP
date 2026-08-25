@@ -1,7 +1,7 @@
 # Segment-Guided RGB-Thermal MoECLIP on MulSen-AD
 
-Status: dataset audit, standalone loader, and isolated thermal conditioning
-encoder complete; router and training integration not started.
+Status: dataset audit, standalone loader, thermal conditioning encoder, and
+isolated region-context module complete; MoE router integration not started.
 
 Last updated: 2026-08-25
 
@@ -220,6 +220,13 @@ spring_pad, zipper`
   tensor, and is not yet connected to MoECLIP.
 - `tests/test_thermal_encoder.py`: patch-count, input-contract, gradient,
   parameter-budget, and state-dict round-trip tests.
+- `model/region_context.py`: modal-label reduction from RGB SLIC pixels to the
+  CLIP grid, per-image region pooling, region-to-full-thermal-grid attention,
+  a broad optional coordinate prior, and region-context broadcast back to
+  individual RGB patches. Identity regions support variant B without assuming
+  same-index RGB/IR fusion.
+- `tests/test_region_context.py`: deterministic patch assignment/pooling,
+  full-grid attention, soft-prior, missing-modality, padding, and gradient tests.
 - The existing RGB `get_dataset`, training, evaluation, model, checkpoints, and
   command-line interface are unchanged at this stage.
 
@@ -232,6 +239,7 @@ $Py = (Get-Command python).Source
 & $Py -m unittest `
   tests.test_mulsen_ad `
   tests.test_thermal_encoder `
+  tests.test_region_context `
   tools.test_inspect_mulsen_alignment -v
 
 & $Py tools\inspect_mulsen_alignment.py `
@@ -262,6 +270,11 @@ No training or evaluation command is defined yet.
   the patch stem, early/late spatial blocks, and output normalization/projection.
   The default encoder has 1,117,952 trainable parameters. State-dict round-trip
   produces bit-identical deterministic evaluation output in the unit fixture.
+- Full-grid region-context smoke on that sample: 63 RGB SLIC regions remained
+  after modal-label patch reduction; `[1,63,256]` region contexts were broadcast
+  to `[1,1369,256]` RGB patch contexts. Every valid region attended over all
+  1,369 thermal tokens, attention sums were numerically one, and finite nonzero
+  gradients reached RGB inputs, the thermal stem, and the context MLP.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
@@ -281,7 +294,7 @@ No training or evaluation command is defined yet.
   training images and be saved with the experiment config.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next implementation gate: region pooling plus registration-tolerant thermal
-  context and router conditioning. No segment-aware PAA until RGB+IR
-  region-conditioned routing passes shape, gradient, mode, loss, checkpoint,
-  and memory smoke tests.
+- Next implementation gate: inject a zero-initialized per-region logit residual
+  into each RGB MoE router while keeping every LoRA expert RGB-only. No
+  segment-aware PAA until RGB+IR region-conditioned routing passes shape,
+  gradient, mode, loss, checkpoint, and memory smoke tests.
