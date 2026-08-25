@@ -3,7 +3,8 @@
 Status: the audited MulSen-AD loader, locked protocol, RGB-only-expert RGB-T
 model, thermal statistics, real ViT-L/14 smoke tests, and A/B/D seed-111
 development runs are complete. The final held-out categories remain sealed and
-unevaluated.
+unevaluated. D-v1.1 implementation and bounded CUDA smoke testing are complete;
+A-corrected and D-v1.1 development training have not run.
 
 Last updated: 2026-08-25
 
@@ -20,6 +21,9 @@ normal/anomalous text-scoring pathway?
 - The audited v1 implementation and A/B/D development evidence are preserved
   through commit `39d9414`; the documentation-corrected save point is identified
   by the annotated tag `mulsen-v1-dev-audit`.
+- The tested D-v1.1 implementation boundary is identified by the annotated tag
+  `mulsen-d-v1.1-ready`. This tag contains code and smoke evidence only; it does
+  not imply that A-corrected or D-v1.1 development training has run.
 - The released-code reproduction and its paper/code differences are recorded in
   `RESULTS_SUMMARY.md`. In particular, the released RGB training path keeps the
   model in evaluation mode, so ETF, router balance loss, and LoRA dropout were not
@@ -210,6 +214,11 @@ spring_pad, zipper`
   modality-exclusive anomalies to match.
 - Modality dropout is training-only and must have an explicit activation test.
 - Primary image label: `label_rgbt = label_rgb OR label_thermal`.
+- RGB segmentation is supervised only for `good` samples or samples with
+  `label_rgb == 1`. Good samples use their all-zero RGB mask, RGB-visible and
+  RGB+IR anomalies use only the RGB mask, and IR-only anomalies are excluded
+  from the RGB segmentation reduction. Classification continues to use
+  `label_rgbt`; RGB/IR masks are never unioned or transported.
 - `label_any` is retained for auditing only while point cloud is absent.
 - RGB-space pixel metrics use RGB masks on RGB-visible anomalies plus normal
   samples. IR masks are preserved, but an RGB patch map is not evaluated against
@@ -251,6 +260,17 @@ spring_pad, zipper`
   residual with a zero-initialized head. Its default exposes all experts to
   learned context; a checkpointed fixed subset supports the context-expert-count
   ablation. Expert inputs remain RGB hidden states only.
+- D-v1.1 adds a count-weighted global summary of valid region contexts and
+  combines it with each patch's local region context before routing. Each of
+  the four MoE layers has an independently checkpointed
+  `alpha_l = sigmoid(a_l)`, initialized to 0.2, that bounds the context-logit
+  residual. CLS context remains zero; the change targets patch routing because
+  detection is produced from projected, mean-pooled adapted patch features.
+- Disabled-by-default v1.2 infrastructure is independently configurable:
+  `--thermal_aux_lambda` adds a training-only thermal-label head, while
+  `--use_thermal_reliability_gate` gates only attended thermal region evidence.
+  Neither probability enters the CLIP/text anomaly score. Both are off for the
+  first D-v1.1 comparison.
 - `tests/test_region_router.py`: initialization equivalence, context masking,
   Top-k shape, RGB-width expert output, gradient, and failure-contract tests.
 - `model/moe_adapter.py::MoECLIP`: variants A--D now share the RGB CLIP
@@ -296,6 +316,16 @@ spring_pad, zipper`
   evaluates the locked category subset, keeps image/RGB-pixel label semantics
   separate, records checkpoint hashes and per-sample score provenance, and
   forbids multi-checkpoint selection on final unseen categories.
+- Evaluation additionally records `label_rgb`, `label_thermal`, and
+  `label_rgbt`, plus good/RGB-only/IR-only/RGB+IR score distributions, raw and
+  normalized RGB patch maxima, the historical combined score, and
+  detection-only AUROC/AP. These are diagnostics only and do not alter the
+  predeclared checkpoint-selection metric.
+- `tools/visualize_mulsen_diagnostics.py` is development-only and read-only with
+  respect to data/model state. For exact requested sample keys it renders RGB,
+  IR, SLIC regions, the RGB anomaly map, region-to-thermal attention, four
+  per-layer Top-1 expert maps, context-induced assignment changes, and optional
+  reliability. GT masks are labeled evaluation-only overlays.
 - `tests/test_evaluate_mulsen.py`: constant-score stability, IR-only exclusion
   from RGB-pixel metrics, inclusion in image metrics, and selection-score tests.
 - New MulSen runs default to a small random base router to avoid deterministic
@@ -351,6 +381,19 @@ $Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
   --seed 111 `
   --amp-init-scale 1024 `
   --use-segment-paa
+
+# D-v1.1 bounded real-model smoke: optional v1.2 components remain off.
+& $Conda run --no-capture-output -n moeclip python `
+  tools\smoke_mulsen_real_model.py `
+  --data-root "data\MulSenAD_official\MulSen_AD" `
+  --thermal-stats "data\MulSenAD_official\thermal_stats_development.json" `
+  --protocol-stage development `
+  --variant D `
+  --sample-index 0 `
+  --img-size 518 `
+  --seed 111 `
+  --amp-init-scale 1024 `
+  --use-global-context
 ```
 
 ## User-run development commands
@@ -440,6 +483,125 @@ $Common = @(
 
 These commands generated the local A/B/D checkpoints and development reports
 described below. No final-stage model has been fit or evaluated.
+
+## Planned A-corrected versus D-v1.1 development comparison
+
+These commands are approved for the next **user-run** comparison but have not
+been executed. They retain the original seed-111 optimization, scheduling,
+epoch budget, category split, and checkpoint-selection rule. The A-corrected
+and D-v1.1 runs both use corrected RGB segmentation supervision. Only D-v1.1
+adds local+global patch-router context and bounded layer-wise context scales.
+
+```powershell
+Set-Location "C:\Users\user7\Desktop\moeclip"
+$Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
+$DataRoot = "data\MulSenAD_official\MulSen_AD"
+$ThermalStats = "data\MulSenAD_official\thermal_stats_development.json"
+$RunACorrected = "ckpt\mulsen_dev_A_corrected_seed111"
+$RunDv11 = "ckpt\mulsen_dev_D_v1_1_seed111"
+
+$CommonV11 = @(
+  "train_mulsen.py",
+  "--dataset", "MulSenAD",
+  "--data_root", $DataRoot,
+  "--protocol_stage", "development",
+  "--model_name", "ViT-L-14-336",
+  "--img_size", "518",
+  "--moe_r", "8",
+  "--moe_lora_alpha", "16",
+  "--moe_num_experts", "4",
+  "--moe_top_k", "2",
+  "--moe_layers", "5,11,17,23",
+  "--router_init", "normal",
+  "--image_adapt_weight", "0.1",
+  "--seg_proj_sharing_strategy", "shared",
+  "--slic_segments", "64",
+  "--slic_compactness", "10.0",
+  "--thermal_depth", "4",
+  "--thermal_width", "256",
+  "--region_context_dim", "256",
+  "--region_attention_heads", "4",
+  "--region_coordinate_bias", "1.0",
+  "--region_coordinate_sigma", "0.75",
+  "--num_context_experts", "4",
+  "--modality_dropout", "0.2",
+  "--thermal_aux_lambda", "0.0",
+  "--align_loss_lambda", "0.0",
+  "--adapter_norm_floor", "1.0",
+  "--epochs", "20",
+  "--batch_size", "1",
+  "--workers", "4",
+  "--lr", "5e-5",
+  "--weight_decay", "0.0",
+  "--lr_milestones", "12,16",
+  "--lr_gamma", "0.1",
+  "--balance_loss_lambda", "0.01",
+  "--etf_loss_lambda", "0.01",
+  "--amp_init_scale", "1024",
+  "--seed", "111"
+)
+
+# A-corrected development training. No RGB-T routing flags are enabled.
+if (Test-Path -LiteralPath $RunACorrected) {
+  throw "Run directory already exists: $RunACorrected"
+}
+$ArgsACorrected = $CommonV11 + @(
+  "--variant", "A",
+  "--output_dir", $RunACorrected
+)
+& $Conda run --no-capture-output -n moeclip python @ArgsACorrected
+if ($LASTEXITCODE -ne 0) { throw "A-corrected training failed." }
+
+# A-corrected development evaluation and historical checkpoint selection.
+$EvalACorrected = Join-Path $RunACorrected "development_evaluation.json"
+if (Test-Path -LiteralPath $EvalACorrected) {
+  throw "Evaluation output already exists: $EvalACorrected"
+}
+$EvalArgsA = @(
+  "evaluate_mulsen.py",
+  "--checkpoint_dir", $RunACorrected,
+  "--data_root", $DataRoot,
+  "--output", $EvalACorrected,
+  "--batch_size", "1",
+  "--workers", "4"
+)
+& $Conda run --no-capture-output -n moeclip python @EvalArgsA
+if ($LASTEXITCODE -ne 0) { throw "A-corrected evaluation failed." }
+
+# D-v1.1 training. Reliability, thermal auxiliary, segment-aware PAA, and
+# alignment remain off; only local+global routing and bounded alpha are new.
+if (Test-Path -LiteralPath $RunDv11) {
+  throw "Run directory already exists: $RunDv11"
+}
+$ArgsDv11 = $CommonV11 + @(
+  "--variant", "D",
+  "--thermal_stats", $ThermalStats,
+  "--use_global_context",
+  "--output_dir", $RunDv11
+)
+& $Conda run --no-capture-output -n moeclip python @ArgsDv11
+if ($LASTEXITCODE -ne 0) { throw "D-v1.1 training failed." }
+
+# D-v1.1 development evaluation using the unchanged historical selector.
+$EvalDv11 = Join-Path $RunDv11 "development_evaluation.json"
+if (Test-Path -LiteralPath $EvalDv11) {
+  throw "Evaluation output already exists: $EvalDv11"
+}
+$EvalArgsD = @(
+  "evaluate_mulsen.py",
+  "--checkpoint_dir", $RunDv11,
+  "--data_root", $DataRoot,
+  "--output", $EvalDv11,
+  "--batch_size", "1",
+  "--workers", "4"
+)
+& $Conda run --no-capture-output -n moeclip python @EvalArgsD
+if ($LASTEXITCODE -ne 0) { throw "D-v1.1 evaluation failed." }
+```
+
+Absence of `--use_thermal_reliability_gate` and `--use_segment_paa`, together
+with `--thermal_aux_lambda 0.0` and `--align_loss_lambda 0.0`, is part of the
+predeclared D-v1.1 attribution boundary.
 
 ## RESULTS
 
@@ -553,8 +715,22 @@ described below. No final-stage model has been fit or evaluated.
   were exactly zero at every layer by the v1 design. Thus the observed failure
   is not explained by inactive losses or total expert collapse; it is consistent
   with patch/image score calibration and uneven layer-wise context influence.
-- The routing audit added two deterministic tests. The complete offline suite is
-  now 50 repository tests plus 3 alignment-inspector tests, all passing.
+- At the v1 save point, the routing audit added two deterministic tests and the
+  complete offline suite comprised 50 repository tests plus 3 alignment tests.
+  That original v1 evidence and its result files remain unchanged.
+- D-v1.1 code validation is a **smoke result, not a development model result**:
+  73 repository tests plus 3 alignment-inspector tests pass. A bounded real
+  ViT-L/14-336 CUDA smoke on one development-training sample performed two
+  backward passes and one optimizer update without saving a checkpoint. It
+  produced 12 RGB patch maps with shape `[1,1369,768]`, a `[1,768]` detection
+  feature, finite/nonzero ETF and balance losses, and nonzero second-pass
+  gradients through the thermal encoder, region attention, local/global context
+  projection, context router, all active RGB LoRA experts, and the four bounded
+  context scales. Peak allocation was 6,747.31 MiB on an RTX 4080 SUPER. The
+  D-v1.1 model had 10,808,068 trainable parameters.
+- Relative to that real D-v1.1 count, the disabled thermal auxiliary head would
+  add 1,026 trainable parameters and the disabled reliability gates would add
+  394,756. They are not enabled in the first D-v1.1 experiment.
 
 ### Not results
 
@@ -575,17 +751,22 @@ described below. No final-stage model has been fit or evaluated.
 - The final unseen-category side of the primary split has not been tested and
   must remain locked. Development results have now been observed, but the five
   final unseen categories remain untouched.
-- V1 supplies zero router context to CLS. Thermal/region information can affect
-  the image feature only indirectly through patch-to-CLS attention in later
-  blocks. This is a plausible reason that B/D retain pixel localization while
-  degrading image-level calibration.
-- **Hypothesis for v1.1, not a result:** condition the RGB CLS router with a
-  pooled global summary of the same region contexts, and add an explicit,
-  configurable per-layer context-residual scale. This preserves RGB CLIP-space
-  expert outputs and the text-scoring pathway while making image-level thermal
-  evidence direct and bounding layer-17 context dominance. It must be introduced
-  as a new development ablation, not silently substituted for D.
-- Next gate: add image-score subgroup diagnostics (RGB-visible versus IR-only),
-  implement the single v1.1 ablation above, and compare it once against A/D on
-  the same development categories. Do not run E or touch final unseen categories
-  unless region-conditioned routing first clears this development gate.
+- V1 supplies zero router context to CLS, but the current detection feature is
+  not a direct CLS readout: it is produced by `det_proj` followed by mean pooling
+  of adapted RGB patch features. CLS conditioning is therefore not the main
+  v1.1 intervention.
+- **Hypothesis for v1.1, not a result:** combining each local region context with
+  a count-weighted global multimodal region summary can make image-wide evidence
+  available to every RGB patch router, while independently bounded layer scales
+  can prevent one depth from dominating. Experts still adapt RGB CLIP tokens
+  only, so the representation and text-scoring pathway remain in RGB CLIP space.
+- **Future experiments, not results:** first compare A-corrected against D-v1.1
+  with the same seed, optimizer, scheduler, epoch budget, categories, and
+  historical selection metric. Keep reliability, thermal auxiliary loss,
+  segment-aware PAA, and alignment off. Only if D-v1.1 clears the development
+  gate should thermal auxiliary supervision (`lambda=0.05`) and reliability be
+  tested separately; E remains last.
+- The next decision gate is the user-run A-corrected/D-v1.1 development
+  comparison plus subgroup, alpha, attention-entropy, routing-ratio, and
+  qualitative diagnostics. Do not touch final unseen categories before the
+  architecture and epoch budget are frozen.
