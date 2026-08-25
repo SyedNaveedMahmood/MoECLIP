@@ -352,8 +352,9 @@ $Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
 
 ## User-run development commands
 
-These commands are available but have not been run. Run A first and inspect its
-log/checkpoints before spending compute on B and D.
+These are the exact commands used for the seed-111 A/B/D development runs.
+They are retained for reproducibility; existing output directories must not be
+overwritten.
 
 ```powershell
 Set-Location "C:\Users\user7\Desktop\moeclip"
@@ -423,9 +424,19 @@ $Common = @(
   --output "ckpt\mulsen_dev_A_seed111\development_validation.json" `
   --batch_size 1 `
   --workers 4
+
+# Read-only selected-checkpoint routing audit (example A-18).
+& $Conda run --no-capture-output -n moeclip python `
+  tools\inspect_mulsen_routing.py `
+  --checkpoint "ckpt\mulsen_dev_A_seed111\mulsen_epoch_018.pth" `
+  --data_root $DataRoot `
+  --output "ckpt\mulsen_dev_A_seed111\routing_audit_selected.json" `
+  --batch_size 1 `
+  --workers 4
 ```
 
-No model training or checkpoint evaluation has been run for the extension.
+These commands generated the local A/B/D checkpoints and development reports
+described below. No final-stage model has been fit or evaluated.
 
 ## RESULTS
 
@@ -499,12 +510,54 @@ No model training or checkpoint evaluation has been run for the extension.
   12 maps and activated thermal/context gradients after the stabilization step,
   with 10,019,584 trainable parameters and 6,980.26 MiB peak allocation. The
   generalized diagnostic therefore covers the prioritized A/B/D paths.
-- No model has been trained or evaluated for this extension.
+- Seed-111 development training completed for A, B, and D with the locked eight
+  training categories and without any images, labels, or masks from the two
+  held-out development categories entering training. All runs completed 20
+  epochs without NaN/Inf, AMP, CUDA-memory, SLIC, or dataloader failures. Final
+  training losses were A 2.894581, B 2.619047, and D 2.600920. The lower B/D
+  training losses did **not** imply better held-out transfer.
+- Leakage-safe validation scanned all 20 checkpoints on only
+  `plastic_cylinder` and `screw`, using the predeclared selection score and
+  earliest-epoch tie-break. This is one seed, not an estimate of variance:
+
+  | Variant | Selected epoch | Selection | Image AUROC | Detection-only AUROC | RGB pixel AUROC | RGB pixel AP |
+  |---|---:|---:|---:|---:|---:|---:|
+  | A | 18 | 0.859809 | 0.731677 | 0.430839 | 0.987941 | 0.204185 |
+  | B | 8 | 0.779219 | 0.570000 | 0.235548 | 0.988437 | 0.194250 |
+  | D | 13 | 0.724571 | 0.458129 | 0.259871 | 0.991014 | 0.197952 |
+
+  The result-file SHA-256 values are A
+  `f1ecd3028332f38d3e53893ea3fcb19e86d2f00351174ab5eea319ed9ff38173`,
+  B `20e4f6a03f602871cca8faebc14638e1b8a43103a3dd9addbd3543e36dab0750`,
+  and D `943b710e7ec40dabfad55305c2e0cbae9e29657c97f31932d2f84bd06f424fdf`.
+- The negative B/D result is concentrated at image level, not pixel ranking.
+  Raw patch-maximum AUROC on `plastic_cylinder`/`screw` was A 0.756/0.774,
+  B 0.712/0.642, and D 0.796/0.374. D therefore improved the patch-maximum
+  ranking on `plastic_cylinder` but inverted it on `screw`. The development
+  `plastic_cylinder` set contains 10 normal, 17 RGB-visible anomalous, and 8
+  IR-only anomalous images. D's mean raw patch maximum was -266.10 for normal,
+  -170.37 for RGB-visible anomalous, and -267.34 for IR-only anomalous images:
+  thermal-conditioned routing did not make IR-only defects score anomalously in
+  the retained RGB/text scoring space. `screw` has no IR-only anomalies in this
+  split, so modality visibility alone does not explain its inversion.
+- Read-only hooks audited the selected A-18, B-8, and D-13 routers over all 76
+  held-out images. Soft routing did not collapse: effective expert counts stayed
+  near four, and Top-2 selection used multiple experts at every layer. Context
+  influence was concentrated at transformer block 17. For B, mean absolute
+  context logits were 1.748 times base RGB logits and changed the patch Top-1
+  expert for 47.5% of tokens; for D the corresponding values were 0.527 and
+  37.6%. D's context/base ratio at block 23 was only 0.0027. CLS context logits
+  were exactly zero at every layer by the v1 design. Thus the observed failure
+  is not explained by inactive losses or total expert collapse; it is consistent
+  with patch/image score calibration and uneven layer-wise context influence.
+- The routing audit added two deterministic tests. The complete offline suite is
+  now 50 repository tests plus 3 alignment-inspector tests, all passing.
 
 ### Not results
 
-- Split performance, comparative ablation effects, generalization, and interview
-  performance claims remain unknown until experiments are actually run.
+- Final unseen-category performance, multi-seed stability, segment-aware PAA
+  effects, and generalization claims remain unknown. The table above is a single
+  development seed and must not be described as variance or final ZSAD evidence.
 
 ## Known limitations and next gates
 
@@ -516,7 +569,20 @@ No model training or checkpoint evaluation has been run for the extension.
 - Development thermal mean/std is now fixed from only the eight development
   training categories. Final-refit statistics remain intentionally uncomputed;
   they must be recomputed from normal training images in final `D_s` only.
-- The primary category split has not been tested and must remain locked before
-  model results are observed.
-- Next gate: the user runs A, returns the training tail and development
-  validation summary, and only then proceeds to B and D.
+- The final unseen-category side of the primary split has not been tested and
+  must remain locked. Development results have now been observed, but the five
+  final unseen categories remain untouched.
+- V1 supplies zero router context to CLS. Thermal/region information can affect
+  the image feature only indirectly through patch-to-CLS attention in later
+  blocks. This is a plausible reason that B/D retain pixel localization while
+  degrading image-level calibration.
+- **Hypothesis for v1.1, not a result:** condition the RGB CLS router with a
+  pooled global summary of the same region contexts, and add an explicit,
+  configurable per-layer context-residual scale. This preserves RGB CLIP-space
+  expert outputs and the text-scoring pathway while making image-level thermal
+  evidence direct and bounding layer-17 context dominance. It must be introduced
+  as a new development ablation, not silently substituted for D.
+- Next gate: add image-score subgroup diagnostics (RGB-visible versus IR-only),
+  implement the single v1.1 ablation above, and compare it once against A/D on
+  the same development categories. Do not run E or touch final unseen categories
+  unless region-conditioned routing first clears this development gate.
