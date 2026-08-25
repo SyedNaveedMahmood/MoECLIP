@@ -7,7 +7,7 @@ import unittest
 import torch
 
 from model.config import MixLoraConfig
-from model.moe_adapter import BaseIndependentMoE
+from model.moe_adapter import BaseIndependentMoE, etf_loss, match_adapter_token_norm
 
 
 def _config(num_experts: int = 4, top_k: int = 2) -> MixLoraConfig:
@@ -34,6 +34,24 @@ def _config(num_experts: int = 4, top_k: int = 2) -> MixLoraConfig:
 class RegionRouterTest(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(17)
+
+    def test_zero_initialized_expert_math_has_finite_half_precision_backward(self) -> None:
+        adapter_output = torch.zeros(
+            2, 3, 8, dtype=torch.float16, requires_grad=True
+        )
+        reference = torch.randn(2, 3, 8, dtype=torch.float16)
+        matched = match_adapter_token_norm(adapter_output, reference)
+        matched.float().sum().backward()
+        self.assertTrue(torch.isfinite(adapter_output.grad).all())
+        self.assertGreater(float(adapter_output.grad.abs().sum()), 0.0)
+
+        expert_outputs = torch.zeros(
+            6, 4, 8, dtype=torch.float16, requires_grad=True
+        )
+        loss = etf_loss(expert_outputs)
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        self.assertTrue(torch.isfinite(expert_outputs.grad).all())
 
     def _router(self, num_context_experts=None) -> BaseIndependentMoE:
         return BaseIndependentMoE(

@@ -112,6 +112,14 @@ def parse_args():
     parser.add_argument("--num_context_experts", type=int)
     parser.add_argument("--modality_dropout", type=float, default=0.2)
     parser.add_argument("--align_loss_lambda", type=float, default=0.0)
+    parser.add_argument("--adapter_norm_floor", type=float, default=1.0)
+    parser.add_argument(
+        "--legacy_adapter_norm",
+        dest="stable_adapter_norm",
+        action="store_false",
+        help="use the released near-zero-singular adapter normalization",
+    )
+    parser.set_defaults(stable_adapter_norm=True)
 
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=1)
@@ -128,6 +136,12 @@ def parse_args():
     parser.set_defaults(augment=True)
     parser.add_argument("--no_amp", dest="amp", action="store_false")
     parser.set_defaults(amp=True)
+    parser.add_argument(
+        "--amp_init_scale",
+        type=float,
+        default=1024.0,
+        help="initial GradScaler scale; 1024 is validated for batch-one ViT-L/14",
+    )
     parser.add_argument("--seed", type=int, default=111)
     return parser.parse_args()
 
@@ -145,6 +159,10 @@ def validate_args(args) -> Tuple[bool, bool]:
         raise ValueError("img_size, epochs, and batch_size must be positive")
     if args.workers < 0:
         raise ValueError("workers must be non-negative")
+    if not np.isfinite(args.amp_init_scale) or args.amp_init_scale <= 0.0:
+        raise ValueError("amp_init_scale must be finite and positive")
+    if not np.isfinite(args.adapter_norm_floor) or args.adapter_norm_floor <= 0.0:
+        raise ValueError("adapter_norm_floor must be finite and positive")
     if args.moe_num_experts < args.moe_top_k or args.moe_top_k <= 0:
         raise ValueError("moe_top_k must be within 1..moe_num_experts")
     if args.num_context_experts is not None and not (
@@ -199,6 +217,8 @@ def build_experiment_config(
         "region_coordinate_sigma": args.region_coordinate_sigma,
         "num_context_experts": args.num_context_experts,
         "modality_dropout": args.modality_dropout,
+        "stable_adapter_norm": args.stable_adapter_norm,
+        "adapter_norm_floor": args.adapter_norm_floor,
         "slic_segments": args.slic_segments,
         "slic_compactness": args.slic_compactness,
         "augment": args.augment,
@@ -224,6 +244,7 @@ def build_experiment_config(
         "align_loss_lambda": 0.0,
         "batch_size": args.batch_size,
         "amp": args.amp,
+        "amp_init_scale": args.amp_init_scale,
         "seed": args.seed,
     }
 
@@ -381,6 +402,8 @@ def main() -> None:
         region_coordinate_sigma=args.region_coordinate_sigma,
         num_context_experts=args.num_context_experts,
         modality_dropout=args.modality_dropout,
+        stable_adapter_norm=args.stable_adapter_norm,
+        adapter_norm_floor=args.adapter_norm_floor,
     ).to(device)
     trainable = configure_trainable_parameters(model, args.use_fofs)
     model.train()
@@ -419,7 +442,10 @@ def main() -> None:
         optimizer, milestones=list(args.lr_milestones), gamma=args.lr_gamma
     )
     amp_enabled = bool(args.amp and device.type == "cuda")
-    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    scaler = torch.cuda.amp.GradScaler(
+        enabled=amp_enabled,
+        init_scale=args.amp_init_scale,
+    )
     start_epoch = 0
     if args.resume is not None:
         checkpoint = load_mulsen_checkpoint(

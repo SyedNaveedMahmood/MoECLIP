@@ -24,6 +24,8 @@ def _args(**overrides):
         "moe_num_experts": 4,
         "moe_top_k": 2,
         "num_context_experts": None,
+        "amp_init_scale": 1024.0,
+        "adapter_norm_floor": 1.0,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -62,6 +64,12 @@ class TrainMulSenTest(unittest.TestCase):
             validate_args(_args(variant="D", thermal_stats=None))
         with self.assertRaisesRegex(ValueError, "alignment is intentionally disabled"):
             validate_args(_args(align_loss_lambda=0.1))
+        with self.assertRaisesRegex(ValueError, "amp_init_scale"):
+            validate_args(_args(amp_init_scale=float("nan")))
+        with self.assertRaisesRegex(ValueError, "amp_init_scale"):
+            validate_args(_args(amp_init_scale=0.0))
+        with self.assertRaisesRegex(ValueError, "adapter_norm_floor"):
+            validate_args(_args(adapter_norm_floor=0.0))
 
     def test_loss_is_finite_and_uses_multimodal_region_inputs(self) -> None:
         torch.manual_seed(31)

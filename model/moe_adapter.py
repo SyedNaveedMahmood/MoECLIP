@@ -23,7 +23,12 @@ def etf_loss(
         return torch.tensor(0.0, device=expert_outputs.device)
 
 
-    norm_outputs = F.normalize(expert_outputs, p=2, dim=-1, eps=eps)
+    # LoRA B is intentionally zero-initialized. In fp16, differentiating
+    # normalization at that point with eps=1e-6 overflows (1 / eps exceeds the
+    # finite fp16 range) even though the forward loss is finite. ETF is a small
+    # auxiliary loss, so keep this numerically sensitive reduction in fp32.
+    working_outputs = expert_outputs.float()
+    norm_outputs = F.normalize(working_outputs, p=2, dim=-1, eps=eps)
     
     gram_matrix = torch.bmm(norm_outputs, norm_outputs.transpose(1, 2))
 
@@ -32,7 +37,7 @@ def etf_loss(
         (num_experts, num_experts), 
         target_val, 
         device=expert_outputs.device, 
-        dtype=expert_outputs.dtype
+        dtype=working_outputs.dtype
     )
 
     target_matrix.fill_diagonal_(1.0)
@@ -40,6 +45,34 @@ def etf_loss(
     loss = F.mse_loss(gram_matrix, target_matrix.unsqueeze(0).expand_as(gram_matrix))
     
     return loss
+
+
+def match_adapter_token_norm(
+    adapter_output: torch.Tensor,
+    reference: torch.Tensor,
+    min_adapter_norm: float = 1.0,
+) -> torch.Tensor:
+    """Match large adapter outputs to RGB-token norms without a zero singularity.
+
+    The released expression divided by ``adapter_norm + 1e-6``. Since every
+    LoRA B matrix starts at zero, its first backward pass amplified gradients by
+    roughly ``reference_norm / 1e-6`` and overflowed under AMP. Below the
+    explicit floor we retain a finite linear path; above it, the original
+    token-wise norm-matching behavior is recovered.
+    """
+
+    if adapter_output.shape != reference.shape:
+        raise ValueError("adapter output and reference must have identical shapes")
+    if min_adapter_norm <= 0.0:
+        raise ValueError("min_adapter_norm must be positive")
+    adapter_norm = torch.linalg.vector_norm(
+        adapter_output.float(), dim=-1, keepdim=True
+    )
+    reference_norm = torch.linalg.vector_norm(
+        reference.float(), dim=-1, keepdim=True
+    )
+    scale = reference_norm / adapter_norm.clamp_min(min_adapter_norm)
+    return adapter_output * scale.to(dtype=adapter_output.dtype)
 
 class SimpleLoraExpert(nn.Module):
     def __init__(
@@ -356,6 +389,8 @@ class MoECLIP(nn.Module):
         num_context_experts: Optional[int] = None,
         num_shared_experts: Optional[int] = None,
         modality_dropout: float = 0.2,
+        stable_adapter_norm: bool = False,
+        adapter_norm_floor: float = 1.0,
         **kwargs,
     ):
         super().__init__()
@@ -381,6 +416,10 @@ class MoECLIP(nn.Module):
         if not 0.0 <= modality_dropout <= 1.0:
             raise ValueError("modality_dropout must be in [0,1]")
         self.modality_dropout = float(modality_dropout)
+        if not math.isfinite(adapter_norm_floor) or adapter_norm_floor <= 0.0:
+            raise ValueError("adapter_norm_floor must be finite and positive")
+        self.stable_adapter_norm = bool(stable_adapter_norm)
+        self.adapter_norm_floor = float(adapter_norm_floor)
         if num_shared_experts is not None:
             if (
                 num_context_experts is not None
@@ -554,6 +593,21 @@ class MoECLIP(nn.Module):
         self.clipmodel.eval()
         return self
 
+    def _normalize_adapter_output(self, adapter_output, reference):
+        if self.stable_adapter_norm:
+            return match_adapter_token_norm(
+                adapter_output,
+                reference,
+                min_adapter_norm=self.adapter_norm_floor,
+            )
+        # Preserve the released MoECLIP computation unless the new MulSen path
+        # explicitly opts into the AMP-safe formulation.
+        return (
+            adapter_output
+            * reference.norm(dim=-1, keepdim=True)
+            / (adapter_output.norm(dim=-1, keepdim=True) + 1e-6)
+        )
+
     def forward(
         self,
         x,
@@ -702,11 +756,7 @@ class MoECLIP(nn.Module):
                 ][adapter_index](x, router_context=router_context)
                 if expert_outputs is not None:
                     total_etf_loss = total_etf_loss + etf_loss(expert_outputs)
-                moe_output = (
-                    moe_output
-                    * x.norm(dim=-1, keepdim=True)
-                    / (moe_output.norm(dim=-1, keepdim=True) + 1e-6)
-                )
+                moe_output = self._normalize_adapter_output(moe_output, x)
                 x = self.i_w * moe_output + (1.0 - self.i_w) * x
                 total_load_balance_loss = total_load_balance_loss + moe_loss
             if block_index + 1 in self.levels:
@@ -756,10 +806,7 @@ class MoECLIP(nn.Module):
                 if all_expert_outputs is not None:
                     moe_etf_l = etf_loss(all_expert_outputs)
                     total_etf_loss += moe_etf_l
-                moe_output_normalized = (
-                    moe_output * x.norm(dim=-1, keepdim=True)
-                    / (moe_output.norm(dim=-1, keepdim=True) + 1e-6)
-                )
+                moe_output_normalized = self._normalize_adapter_output(moe_output, x)
                 x = self.i_w * moe_output_normalized + (1 - self.i_w) * x
                 
                 total_load_balance_loss += moe_lb_loss

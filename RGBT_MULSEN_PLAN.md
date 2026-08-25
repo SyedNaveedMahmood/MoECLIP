@@ -265,6 +265,10 @@ spring_pad, zipper`
   IR statistics for B/D, uses the locked dataset composition, keeps frozen CLIP
   in eval while adapters train, enables AMP on CUDA, and keeps cross-modal
   alignment disabled in v1.
+- The MulSen CLI explicitly enables AMP-safe adapter norm matching with floor
+  1.0 and initial loss scale 1,024; both are recorded in experiment config and
+  overridable. `MoECLIP` defaults to the released norm expression, so existing
+  `train.py`/`test.py` behavior is not silently changed.
 - `mulsen_checkpoint.py`: strict component, optimizer, scheduler, scaler,
   experiment-config, and RNG checkpointing with atomic replacement.
 - New MulSen runs default to a small random base router to avoid deterministic
@@ -280,10 +284,9 @@ spring_pad, zipper`
 ## Reproducible smoke commands
 
 ```powershell
-conda activate moeclip
-$Py = (Get-Command python).Source
+$Conda = "C:\Users\user7\miniconda3\Scripts\conda.exe"
 
-& $Py -m unittest `
+& $Conda run --no-capture-output -n moeclip python -m unittest `
   tests.test_mulsen_ad `
   tests.test_thermal_encoder `
   tests.test_region_context `
@@ -295,7 +298,8 @@ $Py = (Get-Command python).Source
   tests.test_train_mulsen `
   tools.test_inspect_mulsen_alignment -v
 
-& $Py tools\inspect_mulsen_alignment.py `
+& $Conda run --no-capture-output -n moeclip python `
+  tools\inspect_mulsen_alignment.py `
   --data-root "data\MulSenAD_official\MulSen_AD" `
   --output-dir "data\mulsen_alignment_audit" `
   --sample-count 16 `
@@ -303,14 +307,26 @@ $Py = (Get-Command python).Source
   --max-shift 32
 
 # User-run preprocessing; choose the stage being trained.
-& $Py tools\compute_mulsen_thermal_stats.py `
+& $Conda run --no-capture-output -n moeclip python `
+  tools\compute_mulsen_thermal_stats.py `
   --data-root "data\MulSenAD_official\MulSen_AD" `
   --protocol-stage development `
   --output "data\MulSenAD_official\thermal_stats_development.json"
+
+& $Conda run --no-capture-output -n moeclip python `
+  tools\smoke_mulsen_real_model.py `
+  --data-root "data\MulSenAD_official\MulSen_AD" `
+  --thermal-stats "data\MulSenAD_official\thermal_stats_development.json" `
+  --protocol-stage development `
+  --sample-index 0 `
+  --img-size 518 `
+  --seed 111 `
+  --amp-init-scale 1024
 ```
 
-The training CLI is implemented, but a concrete training command is withheld
-until the user-run thermal-statistics step and real-model smoke pass.
+The training CLI is implemented. A concrete experiment command remains
+withheld until segment-aware PAA is implemented and its independent smoke gate
+passes; no model training has been run.
 
 ## RESULTS
 
@@ -354,6 +370,25 @@ until the user-run thermal-statistics step and real-model smoke pass.
   round-trip restores image/MoE/region modules, thermal encoder, text adapter,
   optimizer, scheduler, config, and deterministic output. This is code evidence,
   not evidence that a MulSen model has trained successfully.
+- User-run development thermal statistics completed over exactly 705 normal IR
+  images (216,576,000 native pixels): mean 0.614252555096359 and population
+  standard deviation 0.33349515475237973 after symmetric RGB-channel averaging
+  and division by 255. The JSON SHA-256 is
+  `8159917b95b1592053189b9552cba0c0871848730d6d1fa2193dc868589b7d0d`.
+- Real ViT-L/14-336 variant-D CUDA smoke on a 518x518 `button_cell` normal pair
+  passed with 12 `[1,1369,768]` patch-derived segmentation maps, one
+  `[1,768]` image feature, 10,019,584 trainable parameters, 6,723.07 MiB peak
+  allocated CUDA memory, and 7,052 MiB peak reserved memory. The first backward
+  gave a finite nonzero gradient to the zero-initialized context-router head;
+  after one in-memory AdamW update, finite nonzero gradients reached the thermal
+  encoder, full-grid thermal attention, context MLP, router head, all 16 RGB
+  LoRA expert instances, segmentation projection, and text adapter. The smoke
+  wrote no checkpoint and is not a training result.
+- The first real AMP smoke exposed non-finite backward gradients despite finite
+  losses. Root causes were singular norm matching at zero-initialized LoRA
+  outputs and half-precision ETF normalization; both are now hardened. AMP
+  initial scale 65,536 still overflowed this batch, while an explicit scale
+  1,024 was finite and is now the configurable, recorded MulSen default.
 - No model has been trained or evaluated for this extension.
 
 ### Not results
@@ -369,13 +404,10 @@ until the user-run thermal-statistics step and real-model smoke pass.
   be inspected.
 - IR localization cannot be scored by comparing an unregistered IR mask directly
   with an RGB patch map.
-- Thermal mean/std has not been estimated. It must use only the active stage's
-  training categories (development-train for selection, final `D_s` for refit)
-  and be saved with the experiment config. The command is implemented but has
-  deliberately not been run by the agent.
+- Development thermal mean/std is now fixed from only the eight development
+  training categories. Final-refit statistics remain intentionally uncomputed;
+  they must be recomputed from normal training images in final `D_s` only.
 - The primary category split has not been tested and must remain locked before
   model results are observed.
-- Next gate: the user runs the development thermal-statistics command and
-  returns its JSON. Then run a real ViT-L/14 batch-one forward/backward and
-  CUDA-memory smoke. No segment-aware PAA until this region-conditioned path
-  passes that real-model gate.
+- Next gate: implement segmentation-constrained PAA as an independently
+  switchable ablation, while leaving standard PAA and variants A--D unchanged.

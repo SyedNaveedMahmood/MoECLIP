@@ -95,6 +95,7 @@ class RegionMoECLIPTest(unittest.TestCase):
         self.assertEqual(detection.shape, (1, 768))
         self.assertEqual(balance.item(), 0.0)
         self.assertEqual(etf.item(), 0.0)
+        self.assertFalse(model.stable_adapter_norm)
 
     def test_region_thermal_forward_remains_rgb_patch_derived(self) -> None:
         model = _model(use_thermal=True, use_region_routing=True).eval()
