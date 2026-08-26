@@ -1,0 +1,27 @@
+{
+  "protocol_version": "mulsen-rgbt-zsad-v1",
+  "protocol_stage": "final",
+  "seed": 111,
+  "frozen_source_commit": "62b1cee5d6a01ee224fad4a9e4b11b5eb9da2c10",
+  "frozen_tag": "mulsen-rgbt-extension-frozen-v1",
+  "tracked_files_sha256": {
+    "A_final_evaluation.json": "582a126be923af9a984a4072631ab01f92af2a55e46d0c070c899bc92af10b82",
+    "A_final_summary.json": "d67fbcb2f1044a461e2f709cba1eb67f60dd0011c63a8bf07b0bc6adf8ac09c9",
+    "configs/A_final_config.json": "817b5a9a94e059f126a876d9302daab52639c8f63998c0924e0e869bce82f379",
+    "configs/D_v1_1_final_config.json": "2c43023b797f9b14f381ffecef711e6491aff60f4bd35855f5f2d8eef4497910",
+    "D_v1_1_final_evaluation.json": "0eca3c291c5cd2a785179ec03032a4a3c5afd0156b5d69e5ca7c3c5fba38aeb8",
+    "D_v1_1_final_routing.json": "7a1190435433f2e9f80a2231a9b88f42342cde93d4dc0c659073cb2a6d9a6002",
+    "D_v1_1_final_summary.json": "ecf65667287247f85c6bc3babd46fabbc3740c972734ddce304ea2350362cf81",
+    "thermal_stats_final.json": "40d71cf4fdf0601052118c208498e400d18290c5a1885c514be9949ab221ee46"
+  },
+  "local_source_artifacts_sha256": {
+    "A_final_evaluation_raw": "421be1456f61b494009d09fc939d1090de83775e5101535828697698bccc992c",
+    "D_v1_1_final_evaluation_raw": "919ef401a358534139f892786a7694553aacc651dc39b2a5ce85a86a1102d0b0",
+    "D_v1_1_final_routing_raw": "b118b503bcca3d271e90b907e7928e45d9cbbce7b1a8e234650cc1fefa80417a"
+  },
+  "checkpoint_sha256": {
+    "A_final_epoch_009": "5155948632a3dd1d0f2843cedc95fef695c2ce3a16c1453b25b911e0dc944df1",
+    "D_v1_1_final_epoch_003": "3c941903018a60d3a530988c122595997db8799f46ef0a6dc78ae7a8be09b192"
+  },
+  "checkpoint_binaries_tracked": false
+}

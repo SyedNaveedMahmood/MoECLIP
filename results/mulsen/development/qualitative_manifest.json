@@ -1,0 +1,51 @@
+{
+  "checkpoint_sha256": "c0b8ff4651bbbe57ce12f7d655e23c97238db26d8f8fcdbf015d3c5c05bf779c",
+  "protocol_stage": "development",
+  "selection_used_model_performance": false,
+  "samples": [
+    {
+      "sample_key": "plastic_cylinder/test/good/0",
+      "category": "plastic_cylinder",
+      "anomaly_type": "good",
+      "label_rgb": 0,
+      "label_thermal": 0,
+      "label_rgbt": 0,
+      "selection": "lexicographically first sample in its modality subgroup",
+      "figure": "figures/plastic_cylinder__test__good__0.png",
+      "figure_sha256": "6757118884eddf523d7cab7bde6f6c5ca6888502f69a08e74b9f9aa0139fa6dc"
+    },
+    {
+      "sample_key": "screw/test/color/0",
+      "category": "screw",
+      "anomaly_type": "color",
+      "label_rgb": 1,
+      "label_thermal": 0,
+      "label_rgbt": 1,
+      "selection": "lexicographically first sample in its modality subgroup",
+      "figure": "figures/screw__test__color__0.png",
+      "figure_sha256": "278533028cbd50a0145c52543fe794b6e6f451bae70ae9b7cfcf233d45276b03"
+    },
+    {
+      "sample_key": "plastic_cylinder/test/broken/4",
+      "category": "plastic_cylinder",
+      "anomaly_type": "broken",
+      "label_rgb": 0,
+      "label_thermal": 1,
+      "label_rgbt": 1,
+      "selection": "lexicographically first sample in its modality subgroup",
+      "figure": "figures/plastic_cylinder__test__broken__4.png",
+      "figure_sha256": "129688e63a30323ef0ffa8e4ba86651070a90365aaddb4fc37d708374dd63b60"
+    },
+    {
+      "sample_key": "plastic_cylinder/test/broken/0",
+      "category": "plastic_cylinder",
+      "anomaly_type": "broken",
+      "label_rgb": 1,
+      "label_thermal": 1,
+      "label_rgbt": 1,
+      "selection": "lexicographically first sample in its modality subgroup",
+      "figure": "figures/plastic_cylinder__test__broken__0.png",
+      "figure_sha256": "b71589ad0343ed52f8d4fe38d705795670c9fb269356a7a25d560e245d929602"
+    }
+  ]
+}

@@ -1,0 +1,487 @@
+{
+  "checkpoint": "mulsen_epoch_003.pth",
+  "checkpoint_sha256": "3c941903018a60d3a530988c122595997db8799f46ef0a6dc78ae7a8be09b192",
+  "epoch": 3,
+  "protocol_version": "mulsen-rgbt-zsad-v1",
+  "protocol_stage": "final",
+  "variant": "D",
+  "evaluation_sample_count": 209,
+  "semantics": {
+    "topk_share": "fraction of selected expert slots; sums to one",
+    "soft_load_cv_squared": "population CV^2 of accumulated pre-top-k probabilities",
+    "context_logits": "context-gate residual after the configured expert mask",
+    "class_context": "zero by v1 design; thermal/region context directly conditions patches only",
+    "thermal_attention_entropy": "mean over valid RGB regions; each region is weighted equally and entropy is normalized by log(thermal token count)"
+  },
+  "layers": [
+    {
+      "adapter_index": 0,
+      "transformer_block_index": 5,
+      "base_gate_weight_l2": 1.2730385065078735,
+      "context_gate_weight_l2": 0.05515524372458458,
+      "context_to_base_weight_l2_ratio": 0.043325668031741864,
+      "context_alpha": 0.20005753636360168,
+      "all_tokens": {
+        "token_count": 286330,
+        "mean_probabilities": [
+          0.24632969149724532,
+          0.2533382591764747,
+          0.25079206240787916,
+          0.24953998670523714
+        ],
+        "top1_share": [
+          0.2005867355848147,
+          0.2702895260713163,
+          0.2975343135542905,
+          0.23158942478957845
+        ],
+        "topk_share": [
+          0.2507072259281249,
+          0.29124087591240877,
+          0.2212674187126742,
+          0.23678447944679215
+        ],
+        "mean_normalized_token_entropy": 0.9960676423288366,
+        "mean_max_probability": 0.2799382390001061,
+        "mean_topk_probability_mass": 0.5375372092123407,
+        "soft_load_cv_squared": 0.00010181645573958649,
+        "top1_load_cv_squared": 0.021807183252079337,
+        "effective_experts_from_mean_probabilities": 3.9997962390879787,
+        "mean_abs_base_logit": 0.08729044118512252,
+        "mean_abs_context_logit": 0.005715337977184375,
+        "mean_abs_total_logit": 0.08728953486644972,
+        "context_to_base_abs_ratio": 0.06547495807775201,
+        "context_changed_top1_fraction": 0.04167918136416023,
+        "context_observed": true
+      },
+      "class_tokens": {
+        "token_count": 209,
+        "mean_probabilities": [
+          0.17607469977944662,
+          0.24691277122098293,
+          0.31899528340859845,
+          0.2580172511521709
+        ],
+        "top1_share": [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "topk_share": [
+          0.0,
+          0.03588516746411483,
+          0.5,
+          0.46411483253588515
+        ],
+        "mean_normalized_token_entropy": 0.9845339267603991,
+        "mean_max_probability": 0.31899528340859845,
+        "mean_topk_probability_mass": 0.5772382947816803,
+        "soft_load_cv_squared": 0.04119642531340794,
+        "top1_load_cv_squared": 3.0,
+        "effective_experts_from_mean_probabilities": 3.916496026621562,
+        "mean_abs_base_logit": 0.21967919641419462,
+        "mean_abs_context_logit": 0.0,
+        "mean_abs_total_logit": 0.21967919641419462,
+        "context_to_base_abs_ratio": 0.0,
+        "context_changed_top1_fraction": 0.0,
+        "context_observed": true
+      },
+      "patch_tokens": {
+        "token_count": 286121,
+        "mean_probabilities": [
+          0.24638100993923626,
+          0.25334295424103925,
+          0.2507422432062246,
+          0.2495337962399294
+        ],
+        "top1_share": [
+          0.20073325620978538,
+          0.27048696180986365,
+          0.29702119033555735,
+          0.23175859164479365
+        ],
+        "topk_share": [
+          0.2508903575759906,
+          0.29142740309169896,
+          0.22106381565841024,
+          0.2366184236739002
+        ],
+        "mean_normalized_token_entropy": 0.9960760673904563,
+        "mean_max_probability": 0.279909708746884,
+        "mean_topk_probability_mass": 0.5375082107911868,
+        "soft_load_cv_squared": 0.00010016281143623854,
+        "top1_load_cv_squared": 0.021562675868974267,
+        "effective_experts_from_mean_probabilities": 3.9997995748507438,
+        "mean_abs_base_logit": 0.08719373653519498,
+        "mean_abs_context_logit": 0.0057195128090483174,
+        "mean_abs_total_logit": 0.08719282990113647,
+        "context_to_base_abs_ratio": 0.06559545486090834,
+        "context_changed_top1_fraction": 0.04170962634689519,
+        "context_observed": true
+      },
+      "thermal_attention": {
+        "region_count": 12001,
+        "zero_attention_region_count": 0,
+        "thermal_token_count": 1369,
+        "mean_entropy_nats": 6.821784377465615,
+        "mean_normalized_entropy": 0.9446053226414686,
+        "min_normalized_entropy": 0.8158400654792786,
+        "max_normalized_entropy": 0.9953245520591736,
+        "mean_effective_thermal_tokens": 940.1510539811786
+      }
+    },
+    {
+      "adapter_index": 1,
+      "transformer_block_index": 11,
+      "base_gate_weight_l2": 1.2856014966964722,
+      "context_gate_weight_l2": 0.14719592034816742,
+      "context_to_base_weight_l2_ratio": 0.11449575994303628,
+      "context_alpha": 0.20159177482128143,
+      "all_tokens": {
+        "token_count": 286330,
+        "mean_probabilities": [
+          0.24533413963063408,
+          0.25455213935843257,
+          0.24917802827655425,
+          0.2509356927343791
+        ],
+        "top1_share": [
+          0.16156881919463556,
+          0.2768728390318863,
+          0.25315894247895787,
+          0.3083993992945203
+        ],
+        "topk_share": [
+          0.2405057101945308,
+          0.1482240771138197,
+          0.2533161037963189,
+          0.3579541088953306
+        ],
+        "mean_normalized_token_entropy": 0.8999349123956507,
+        "mean_max_probability": 0.38986101327371936,
+        "mean_topk_probability_mass": 0.6397030965042794,
+        "soft_load_cv_squared": 0.0001761735365292989,
+        "top1_load_cv_squared": 0.04785076788724364,
+        "effective_experts_from_mean_probabilities": 3.9996475746463713,
+        "mean_abs_base_logit": 0.12266385237603492,
+        "mean_abs_context_logit": 0.330565896682225,
+        "mean_abs_total_logit": 0.40208180008251654,
+        "context_to_base_abs_ratio": 2.69489250727958,
+        "context_changed_top1_fraction": 0.264600286382845,
+        "context_observed": true
+      },
+      "class_tokens": {
+        "token_count": 209,
+        "mean_probabilities": [
+          0.23269774811119553,
+          0.27067151701336273,
+          0.24477852667062477,
+          0.25185221127060614
+        ],
+        "top1_share": [
+          0.0,
+          0.6028708133971292,
+          0.11004784688995216,
+          0.28708133971291866
+        ],
+        "topk_share": [
+          0.09090909090909091,
+          0.4880382775119617,
+          0.19138755980861244,
+          0.22966507177033493
+        ],
+        "mean_normalized_token_entropy": 0.9975347664006106,
+        "mean_max_probability": 0.27614526044238696,
+        "mean_topk_probability_mass": 0.5347115166449661,
+        "soft_load_cv_squared": 0.003029496006935274,
+        "top1_load_cv_squared": 0.8319177674503789,
+        "effective_experts_from_mean_probabilities": 3.9939773469746513,
+        "mean_abs_base_logit": 0.16517987287643424,
+        "mean_abs_context_logit": 0.0,
+        "mean_abs_total_logit": 0.16517987287643424,
+        "context_to_base_abs_ratio": 0.0,
+        "context_changed_top1_fraction": 0.0,
+        "context_observed": true
+      },
+      "patch_tokens": {
+        "token_count": 286121,
+        "mean_probabilities": [
+          0.24534336887249106,
+          0.2545403650222024,
+          0.2491812409429708,
+          0.2509350243090582
+        ],
+        "top1_share": [
+          0.16168683878498957,
+          0.276634710489618,
+          0.2532634794370214,
+          0.30841497128837103
+        ],
+        "topk_share": [
+          0.24061498456946537,
+          0.1479758563684595,
+          0.25336134013232164,
+          0.3580478189297535
+        ],
+        "mean_normalized_token_entropy": 0.8998636177802997,
+        "mean_max_probability": 0.3899440774780245,
+        "mean_topk_probability_mass": 0.639779790192294,
+        "soft_load_cv_squared": 0.00017537505967737187,
+        "top1_load_cv_squared": 0.047726325661245045,
+        "effective_experts_from_mean_probabilities": 3.9996491689961506,
+        "mean_abs_base_logit": 0.12263279684534349,
+        "mean_abs_context_logit": 0.33080736158991736,
+        "mean_abs_total_logit": 0.40225484615910967,
+        "context_to_base_abs_ratio": 2.697543969474252,
+        "context_changed_top1_fraction": 0.264793566358289,
+        "context_observed": true
+      },
+      "thermal_attention": {
+        "region_count": 12001,
+        "zero_attention_region_count": 0,
+        "thermal_token_count": 1369,
+        "mean_entropy_nats": 6.838482672627216,
+        "mean_normalized_entropy": 0.9469175206036501,
+        "min_normalized_entropy": 0.8185623288154602,
+        "max_normalized_entropy": 0.995384156703949,
+        "mean_effective_thermal_tokens": 950.6249728212753
+      }
+    },
+    {
+      "adapter_index": 2,
+      "transformer_block_index": 17,
+      "base_gate_weight_l2": 1.2898657321929932,
+      "context_gate_weight_l2": 0.13034391403198242,
+      "context_to_base_weight_l2_ratio": 0.10105231170873528,
+      "context_alpha": 0.2008945196866989,
+      "all_tokens": {
+        "token_count": 286330,
+        "mean_probabilities": [
+          0.2675785101867682,
+          0.24581537336965598,
+          0.2481232717967877,
+          0.23848284571260653
+        ],
+        "top1_share": [
+          0.3040093598295673,
+          0.42641357873782,
+          0.1014563615408794,
+          0.1681206998917333
+        ],
+        "topk_share": [
+          0.16266021723186533,
+          0.3320521775573639,
+          0.22208989627353054,
+          0.2831977089372402
+        ],
+        "mean_normalized_token_entropy": 0.9296287613603303,
+        "mean_max_probability": 0.3768880688306884,
+        "mean_topk_probability_mass": 0.6293477271141334,
+        "soft_load_cv_squared": 0.001850728284255146,
+        "top1_load_cv_squared": 0.2512327761007129,
+        "effective_experts_from_mean_probabilities": 3.9963386659717677,
+        "mean_abs_base_logit": 0.161433123140019,
+        "mean_abs_context_logit": 0.2067183687247853,
+        "mean_abs_total_logit": 0.29901403261189424,
+        "context_to_base_abs_ratio": 1.28052016032353,
+        "context_changed_top1_fraction": 0.2971676038137813,
+        "context_observed": true
+      },
+      "class_tokens": {
+        "token_count": 209,
+        "mean_probabilities": [
+          0.32321765705158834,
+          0.22014235765740062,
+          0.22397751129415047,
+          0.23266247143015337
+        ],
+        "top1_share": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "topk_share": [
+          0.5,
+          0.11722488038277512,
+          0.09090909090909091,
+          0.291866028708134
+        ],
+        "mean_normalized_token_entropy": 0.9893526662764239,
+        "mean_max_probability": 0.32321765705158834,
+        "mean_topk_probability_mass": 0.5606604087295715,
+        "soft_load_cv_squared": 0.02892025585141527,
+        "top1_load_cv_squared": 3.0,
+        "effective_experts_from_mean_probabilities": 3.9456380358608634,
+        "mean_abs_base_logit": 0.14151710385911204,
+        "mean_abs_context_logit": 0.0,
+        "mean_abs_total_logit": 0.14151710385911204,
+        "context_to_base_abs_ratio": 0.0,
+        "context_changed_top1_fraction": 0.0,
+        "context_observed": true
+      },
+      "patch_tokens": {
+        "token_count": 286121,
+        "mean_probabilities": [
+          0.2675378691785515,
+          0.24583412644059188,
+          0.2481409093854605,
+          0.23848709616865274
+        ],
+        "top1_share": [
+          0.3035009663743661,
+          0.4267250568815291,
+          0.1015304713739991,
+          0.16824350537010566
+        ],
+        "topk_share": [
+          0.16241380395007707,
+          0.332209100345658,
+          0.22218571862953088,
+          0.28319137707473413
+        ],
+        "mean_normalized_token_entropy": 0.9295851421352992,
+        "mean_max_probability": 0.3769272704770092,
+        "mean_topk_probability_mass": 0.6293979012696715,
+        "soft_load_cv_squared": 0.001843738117193165,
+        "top1_load_cv_squared": 0.2512856979094624,
+        "effective_experts_from_mean_probabilities": 3.9963522820877873,
+        "mean_abs_base_logit": 0.1614476713281822,
+        "mean_abs_context_logit": 0.20686936949025037,
+        "mean_abs_total_logit": 0.29912907577747644,
+        "context_to_base_abs_ratio": 1.281340063863401,
+        "context_changed_top1_fraction": 0.29738467291810106,
+        "context_observed": true
+      },
+      "thermal_attention": {
+        "region_count": 12001,
+        "zero_attention_region_count": 0,
+        "thermal_token_count": 1369,
+        "mean_entropy_nats": 6.118499463423621,
+        "mean_normalized_entropy": 0.8472222031856436,
+        "min_normalized_entropy": 0.6555669903755188,
+        "max_normalized_entropy": 0.991794228553772,
+        "mean_effective_thermal_tokens": 565.3781949648727
+      }
+    },
+    {
+      "adapter_index": 3,
+      "transformer_block_index": 23,
+      "base_gate_weight_l2": 1.2823845148086548,
+      "context_gate_weight_l2": 0.04072710499167442,
+      "context_to_base_weight_l2_ratio": 0.03175888707432757,
+      "context_alpha": 0.19995629787445068,
+      "all_tokens": {
+        "token_count": 286330,
+        "mean_probabilities": [
+          0.25268988688750743,
+          0.24472651848170027,
+          0.24326139804524471,
+          0.25932219903692993
+        ],
+        "top1_share": [
+          0.20461705025669683,
+          0.14693186183773968,
+          0.10590926553277687,
+          0.5425418223727867
+        ],
+        "topk_share": [
+          0.3119844235672127,
+          0.1923654524499703,
+          0.1429486955610659,
+          0.3527014284217511
+        ],
+        "mean_normalized_token_entropy": 0.986776276277589,
+        "mean_max_probability": 0.3006729012466903,
+        "mean_topk_probability_mass": 0.5575585291187725,
+        "soft_load_cv_squared": 0.0006694289966387488,
+        "top1_load_cv_squared": 0.4761020433125313,
+        "effective_experts_from_mean_probabilities": 3.998665169213067,
+        "mean_abs_base_logit": 0.19103861225141364,
+        "mean_abs_context_logit": 0.009158778341326175,
+        "mean_abs_total_logit": 0.19061367759801845,
+        "context_to_base_abs_ratio": 0.04794202718177672,
+        "context_changed_top1_fraction": 0.03081409562393043,
+        "context_observed": true
+      },
+      "class_tokens": {
+        "token_count": 209,
+        "mean_probabilities": [
+          0.27019378678365186,
+          0.20107237837816538,
+          0.2636530131957177,
+          0.2650808232110083
+        ],
+        "top1_share": [
+          0.3444976076555024,
+          0.06698564593301436,
+          0.2727272727272727,
+          0.3157894736842105
+        ],
+        "topk_share": [
+          0.3229665071770335,
+          0.05980861244019139,
+          0.33253588516746413,
+          0.284688995215311
+        ],
+        "mean_normalized_token_entropy": 0.9897132920888706,
+        "mean_max_probability": 0.29446812437481856,
+        "mean_topk_probability_mass": 0.5614318890434703,
+        "soft_load_cv_squared": 0.012862148680758877,
+        "top1_load_cv_squared": 0.18907534168173806,
+        "effective_experts_from_mean_probabilities": 3.9731246354629923,
+        "mean_abs_base_logit": 0.26148588071314344,
+        "mean_abs_context_logit": 0.0,
+        "mean_abs_total_logit": 0.26148588071314344,
+        "context_to_base_abs_ratio": 0.0,
+        "context_changed_top1_fraction": 0.0,
+        "context_observed": true
+      },
+      "patch_tokens": {
+        "token_count": 286121,
+        "mean_probabilities": [
+          0.25267710134716004,
+          0.24475840615676064,
+          0.24324650361675,
+          0.25931799111918286
+        ],
+        "top1_share": [
+          0.20451487307817323,
+          0.1469902593657928,
+          0.10578741161955955,
+          0.5427074559364744
+        ],
+        "topk_share": [
+          0.3119764015923333,
+          0.192462279944499,
+          0.14281020966653968,
+          0.352751108796628
+        ],
+        "mean_normalized_token_entropy": 0.9867741277508764,
+        "mean_max_probability": 0.3006774337474014,
+        "mean_topk_probability_mass": 0.5575556990400532,
+        "soft_load_cv_squared": 0.0006683033951509608,
+        "top1_load_cv_squared": 0.4766193153792432,
+        "effective_experts_from_mean_probabilities": 3.998667411521465,
+        "mean_abs_base_logit": 0.1909871542000587,
+        "mean_abs_context_logit": 0.009165468407629851,
+        "mean_abs_total_logit": 0.19056190872217715,
+        "context_to_base_abs_ratio": 0.04798997317918585,
+        "context_changed_top1_fraction": 0.030836604094072087,
+        "context_observed": true
+      },
+      "thermal_attention": {
+        "region_count": 12001,
+        "zero_attention_region_count": 0,
+        "thermal_token_count": 1369,
+        "mean_entropy_nats": 6.019563105153835,
+        "mean_normalized_entropy": 0.8335225865221274,
+        "min_normalized_entropy": 0.5665501356124878,
+        "max_normalized_entropy": 0.9921898245811462,
+        "mean_effective_thermal_tokens": 546.8762915183501
+      }
+    }
+  ],
+  "source_report_sha256": "b118b503bcca3d271e90b907e7928e45d9cbbce7b1a8e234650cc1fefa80417a"
+}

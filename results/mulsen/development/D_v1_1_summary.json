@@ -1,0 +1,580 @@
+{
+  "label": "D_v1_1",
+  "protocol_version": "mulsen-rgbt-zsad-v1",
+  "protocol_stage": "development",
+  "run_source_commit": "598e54826598a164c6224838c9d1598283df631d",
+  "run_source_commit_note": "Audited repository state for the run; the checkpoint format did not embed a Git commit.",
+  "seed": 111,
+  "variant": "D",
+  "train_categories": [
+    "button_cell",
+    "capsule",
+    "cube",
+    "flat_pad",
+    "light",
+    "screen",
+    "spring_pad",
+    "zipper"
+  ],
+  "evaluation_categories": [
+    "plastic_cylinder",
+    "screw"
+  ],
+  "evaluation_sample_count": 76,
+  "checkpoint_selection": {
+    "rule": "mean of macro image-combined AUROC and macro RGB-pixel AUROC",
+    "tie_break": "earliest epoch",
+    "selected_epoch": 3,
+    "selection_score": 0.8755752241118935
+  },
+  "metrics": {
+    "macro": {
+      "macro_image_combined_auroc": 0.7683870967741935,
+      "macro_image_combined_ap": 0.9129964088319309,
+      "macro_image_detection_auroc": 0.5738064516129032,
+      "macro_rgb_pixel_auroc": 0.9827633514495936,
+      "macro_rgb_pixel_ap": 0.1529643277560246,
+      "selection_score": 0.8755752241118935,
+      "macro_image_detection_ap": 0.806292740117891
+    },
+    "pooled_diagnostics": {
+      "subgroups": {
+        "good": {
+          "sample_count": 20,
+          "anomalous_images": 0,
+          "detection_score": {
+            "sample_count": 20,
+            "mean": 0.28796947598457334,
+            "std": 0.008947870279244827,
+            "min": 0.2785494923591614,
+            "q25": 0.2789529114961624,
+            "median": 0.28770504891872406,
+            "q75": 0.2964152544736862,
+            "max": 0.29830217361450195
+          },
+          "patch_max_score_raw": {
+            "sample_count": 20,
+            "mean": -131.51091270446778,
+            "std": 19.3827066966068,
+            "min": -153.849853515625,
+            "q25": -151.09649276733398,
+            "median": -130.82329940795898,
+            "q75": -112.34967422485352,
+            "max": -110.31976318359375
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 20,
+            "mean": 0.6903210503017997,
+            "std": 0.15547099741511816,
+            "min": 0.4901982108898951,
+            "q25": 0.5335189257176716,
+            "median": 0.7039152536319626,
+            "q75": 0.8405946048044393,
+            "max": 0.869180969276893
+          },
+          "combined_score": {
+            "sample_count": 20,
+            "mean": 0.4891452631431865,
+            "std": 0.08209873398966624,
+            "min": 0.3844982316170133,
+            "q25": 0.4064189719216028,
+            "median": 0.49554078298444215,
+            "q75": 0.5688556830321916,
+            "max": 0.5825961191847264
+          }
+        },
+        "rgb_only": {
+          "sample_count": 16,
+          "anomalous_images": 16,
+          "detection_score": {
+            "sample_count": 16,
+            "mean": 0.29698056541383266,
+            "std": 0.0009112747183959612,
+            "min": 0.2953147292137146,
+            "q25": 0.2962416782975197,
+            "median": 0.29717057943344116,
+            "q75": 0.2976173385977745,
+            "max": 0.29837578535079956
+          },
+          "patch_max_score_raw": {
+            "sample_count": 16,
+            "mean": -108.19961309432983,
+            "std": 5.93688529102368,
+            "min": -123.82426452636719,
+            "q25": -111.68582344055176,
+            "median": -106.86111450195312,
+            "q75": -103.34878158569336,
+            "max": -101.73789978027344
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 16,
+            "mean": 0.8990381314658284,
+            "std": 0.08360660310267966,
+            "min": 0.6790028828698738,
+            "q25": 0.8499433299897543,
+            "median": 0.9178876316802816,
+            "q75": 0.967350306079297,
+            "max": 0.9900356619770608
+          },
+          "combined_score": {
+            "sample_count": 16,
+            "mean": 0.5980093484398306,
+            "std": 0.04202884669322697,
+            "min": 0.48739481063278234,
+            "q25": 0.5733652475475486,
+            "median": 0.6072326618560709,
+            "q75": 0.6321449475812458,
+            "max": 0.643650774618749
+          }
+        },
+        "ir_only": {
+          "sample_count": 8,
+          "anomalous_images": 8,
+          "detection_score": {
+            "sample_count": 8,
+            "mean": 0.27882278710603714,
+            "std": 0.0007227825934967135,
+            "min": 0.27772095799446106,
+            "q25": 0.2783872187137604,
+            "median": 0.27882005274295807,
+            "q75": 0.2794588878750801,
+            "max": 0.27984192967414856
+          },
+          "patch_max_score_raw": {
+            "sample_count": 8,
+            "mean": -150.8540096282959,
+            "std": 1.9178753240437556,
+            "min": -152.67825317382812,
+            "q25": -152.4397850036621,
+            "median": -151.53114318847656,
+            "q75": -149.93890380859375,
+            "max": -146.70193481445312
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 8,
+            "mean": 0.537334097021807,
+            "std": 0.030175388401137773,
+            "min": 0.508631888471233,
+            "q25": 0.5123838892221974,
+            "median": 0.5266802406831086,
+            "q75": 0.5517321515728357,
+            "max": 0.6026618420569316
+          },
+          "combined_score": {
+            "sample_count": 8,
+            "mean": 0.4080784420639221,
+            "std": 0.015111745874799756,
+            "min": 0.3937775956800516,
+            "q25": 0.3956399614930414,
+            "median": 0.40286592128492893,
+            "q75": 0.4147417316163243,
+            "max": 0.4412518858655401
+          }
+        },
+        "rgb_ir": {
+          "sample_count": 32,
+          "anomalous_images": 32,
+          "detection_score": {
+            "sample_count": 32,
+            "mean": 0.28792307432740927,
+            "std": 0.008711223011175658,
+            "min": 0.2780696153640747,
+            "q25": 0.27960851043462753,
+            "median": 0.28158847987651825,
+            "q75": 0.2970699816942215,
+            "max": 0.297879159450531
+          },
+          "patch_max_score_raw": {
+            "sample_count": 32,
+            "mean": -125.72942924499512,
+            "std": 18.996758521215707,
+            "min": -153.461181640625,
+            "q25": -145.68341827392578,
+            "median": -125.0178451538086,
+            "q75": -106.81846237182617,
+            "max": -101.03033447265625
+          },
+          "patch_max_score_normalized": {
+            "sample_count": 32,
+            "mean": 0.7867131820891808,
+            "std": 0.16516879401892887,
+            "min": 0.49631348055403307,
+            "q25": 0.6186869359814909,
+            "median": 0.8415207503885085,
+            "q75": 0.9452428510585995,
+            "max": 1.0
+          },
+          "combined_score": {
+            "sample_count": 32,
+            "mean": 0.537318128208295,
+            "std": 0.08589131418506853,
+            "min": 0.3872646381547097,
+            "q25": 0.4497184823852672,
+            "median": 0.5689768116999396,
+            "q75": 0.6207749764521704,
+            "max": 0.6486660540103912
+          }
+        }
+      },
+      "category_subgroups": {
+        "plastic_cylinder": {
+          "good": {
+            "sample_count": 10,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 10,
+              "mean": 0.27905355393886566,
+              "std": 0.0003828165523422441,
+              "min": 0.2785494923591614,
+              "q25": 0.2787183001637459,
+              "median": 0.2789374887943268,
+              "q75": 0.2794117331504822,
+              "max": 0.2796269655227661
+            },
+            "patch_max_score_raw": {
+              "sample_count": 10,
+              "mean": -150.76173400878906,
+              "std": 2.83515636386967,
+              "min": -153.849853515625,
+              "q25": -153.38808059692383,
+              "median": -151.63370513916016,
+              "q75": -148.5580062866211,
+              "max": -146.0247344970703
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 10,
+              "mean": 0.5387859393932409,
+              "std": 0.04460766734166132,
+              "min": 0.4901982108898951,
+              "q25": 0.4974636347682082,
+              "median": 0.5250665556545477,
+              "q75": 0.5734588605748766,
+              "max": 0.6133167487373692
+            },
+            "combined_score": {
+              "sample_count": 10,
+              "mean": 0.4089197466660533,
+              "std": 0.022374873467929077,
+              "min": 0.3844982316170133,
+              "q25": 0.3881813988879722,
+              "median": 0.40207982118703034,
+              "q75": 0.4264650954597768,
+              "max": 0.4459331205482653
+            }
+          },
+          "rgb_only": {
+            "sample_count": 0,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 0
+            },
+            "patch_max_score_raw": {
+              "sample_count": 0
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 0
+            },
+            "combined_score": {
+              "sample_count": 0
+            }
+          },
+          "ir_only": {
+            "sample_count": 8,
+            "anomalous_images": 8,
+            "detection_score": {
+              "sample_count": 8,
+              "mean": 0.27882278710603714,
+              "std": 0.0007227825934967135,
+              "min": 0.27772095799446106,
+              "q25": 0.2783872187137604,
+              "median": 0.27882005274295807,
+              "q75": 0.2794588878750801,
+              "max": 0.27984192967414856
+            },
+            "patch_max_score_raw": {
+              "sample_count": 8,
+              "mean": -150.8540096282959,
+              "std": 1.9178753240437556,
+              "min": -152.67825317382812,
+              "q25": -152.4397850036621,
+              "median": -151.53114318847656,
+              "q75": -149.93890380859375,
+              "max": -146.70193481445312
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 8,
+              "mean": 0.537334097021807,
+              "std": 0.030175388401137773,
+              "min": 0.508631888471233,
+              "q25": 0.5123838892221974,
+              "median": 0.5266802406831086,
+              "q75": 0.5517321515728357,
+              "max": 0.6026618420569316
+            },
+            "combined_score": {
+              "sample_count": 8,
+              "mean": 0.4080784420639221,
+              "std": 0.015111745874799756,
+              "min": 0.3937775956800516,
+              "q25": 0.3956399614930414,
+              "median": 0.40286592128492893,
+              "q75": 0.4147417316163243,
+              "max": 0.4412518858655401
+            }
+          },
+          "rgb_ir": {
+            "sample_count": 17,
+            "anomalous_images": 17,
+            "detection_score": {
+              "sample_count": 17,
+              "mean": 0.27978816453148336,
+              "std": 0.0011868482119103381,
+              "min": 0.2780696153640747,
+              "q25": 0.27910351753234863,
+              "median": 0.27970167994499207,
+              "q75": 0.28082647919654846,
+              "max": 0.2815999388694763
+            },
+            "patch_max_score_raw": {
+              "sample_count": 17,
+              "mean": -142.21047435087317,
+              "std": 9.156451413224973,
+              "min": -153.461181640625,
+              "q25": -148.77500915527344,
+              "median": -145.36058044433594,
+              "q75": -135.78189086914062,
+              "max": -121.44807434082031
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 17,
+              "mean": 0.6733293991591927,
+              "std": 0.14406540107500063,
+              "min": 0.49631348055403307,
+              "q25": 0.5700445897077073,
+              "median": 0.6237663886322053,
+              "q75": 0.7744751832456208,
+              "max": 1.0
+            },
+            "combined_score": {
+              "sample_count": 17,
+              "mean": 0.47655878184533806,
+              "std": 0.0722297698757258,
+              "min": 0.3872646381547097,
+              "q25": 0.4249588910090203,
+              "median": 0.45268316375084083,
+              "q75": 0.5277827959046173,
+              "max": 0.6401944905519485
+            }
+          }
+        },
+        "screw": {
+          "good": {
+            "sample_count": 10,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 10,
+              "mean": 0.2968853980302811,
+              "std": 0.000997439073510433,
+              "min": 0.295783132314682,
+              "q25": 0.29595375806093216,
+              "median": 0.29677262902259827,
+              "q75": 0.29757992178201675,
+              "max": 0.29830217361450195
+            },
+            "patch_max_score_raw": {
+              "sample_count": 10,
+              "mean": -112.26009140014648,
+              "std": 1.4670665915222287,
+              "min": -115.62186431884766,
+              "q25": -113.01110649108887,
+              "median": -112.10868072509766,
+              "q75": -111.37558364868164,
+              "max": -110.31976318359375
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 10,
+              "mean": 0.8418561612103584,
+              "std": 0.020660068071055946,
+              "min": 0.7945137585265561,
+              "q25": 0.8312799385692576,
+              "median": 0.8439884126509338,
+              "q75": 0.854312303596969,
+              "max": 0.869180969276893
+            },
+            "combined_score": {
+              "sample_count": 10,
+              "mean": 0.5693707796203198,
+              "std": 0.010368331334432917,
+              "min": 0.545148445420619,
+              "q25": 0.5642529014244602,
+              "median": 0.5703739126183155,
+              "q75": 0.5762928170146245,
+              "max": 0.5825961191847264
+            }
+          },
+          "rgb_only": {
+            "sample_count": 16,
+            "anomalous_images": 16,
+            "detection_score": {
+              "sample_count": 16,
+              "mean": 0.29698056541383266,
+              "std": 0.0009112747183959612,
+              "min": 0.2953147292137146,
+              "q25": 0.2962416782975197,
+              "median": 0.29717057943344116,
+              "q75": 0.2976173385977745,
+              "max": 0.29837578535079956
+            },
+            "patch_max_score_raw": {
+              "sample_count": 16,
+              "mean": -108.19961309432983,
+              "std": 5.93688529102368,
+              "min": -123.82426452636719,
+              "q25": -111.68582344055176,
+              "median": -106.86111450195312,
+              "q75": -103.34878158569336,
+              "max": -101.73789978027344
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 16,
+              "mean": 0.8990381314658284,
+              "std": 0.08360660310267966,
+              "min": 0.6790028828698738,
+              "q25": 0.8499433299897543,
+              "median": 0.9178876316802816,
+              "q75": 0.967350306079297,
+              "max": 0.9900356619770608
+            },
+            "combined_score": {
+              "sample_count": 16,
+              "mean": 0.5980093484398306,
+              "std": 0.04202884669322697,
+              "min": 0.48739481063278234,
+              "q25": 0.5733652475475486,
+              "median": 0.6072326618560709,
+              "q75": 0.6321449475812458,
+              "max": 0.643650774618749
+            }
+          },
+          "ir_only": {
+            "sample_count": 0,
+            "anomalous_images": 0,
+            "detection_score": {
+              "sample_count": 0
+            },
+            "patch_max_score_raw": {
+              "sample_count": 0
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 0
+            },
+            "combined_score": {
+              "sample_count": 0
+            }
+          },
+          "rgb_ir": {
+            "sample_count": 15,
+            "anomalous_images": 15,
+            "detection_score": {
+              "sample_count": 15,
+              "mean": 0.29714263876279196,
+              "std": 0.0005401391437980218,
+              "min": 0.2961183190345764,
+              "q25": 0.2968073785305023,
+              "median": 0.29709506034851074,
+              "q75": 0.2976693958044052,
+              "max": 0.297879159450531
+            },
+            "patch_max_score_raw": {
+              "sample_count": 15,
+              "mean": -107.05091145833333,
+              "std": 4.25707758075172,
+              "min": -115.46977233886719,
+              "q25": -111.27284240722656,
+              "median": -105.17082214355469,
+              "q75": -103.6999397277832,
+              "max": -101.03033447265625
+            },
+            "patch_max_score_normalized": {
+              "sample_count": 15,
+              "mean": 0.9152148027431671,
+              "std": 0.05995059332026516,
+              "min": 0.7966556044915697,
+              "q25": 0.85575916432874,
+              "median": 0.9416912922545865,
+              "q75": 0.9624050969380037,
+              "max": 1.0
+            },
+            "combined_score": {
+              "sample_count": 15,
+              "mean": 0.6061787207529795,
+              "std": 0.02999689999441675,
+              "min": 0.5466984556366692,
+              "q25": 0.5765829635835518,
+              "median": 0.6189048056445814,
+              "q75": 0.6299315350466846,
+              "max": 0.6486660540103912
+            }
+          }
+        }
+      },
+      "detection_only": {
+        "auroc": 0.5625,
+        "average_precision": 0.764505827038108
+      }
+    },
+    "per_category": {
+      "plastic_cylinder": {
+        "sample_count": 35,
+        "anomalous_images": 25,
+        "rgb_pixel_sample_count": 27,
+        "image_combined": {
+          "auroc": 0.74,
+          "average_precision": 0.8848520143650529
+        },
+        "image_detection_only": {
+          "auroc": 0.596,
+          "average_precision": 0.8462110613855447
+        },
+        "rgb_pixel": {
+          "auroc": 0.9775365551598186,
+          "average_precision": 0.19869213730876287
+        }
+      },
+      "screw": {
+        "sample_count": 41,
+        "anomalous_images": 31,
+        "rgb_pixel_sample_count": 41,
+        "image_combined": {
+          "auroc": 0.7967741935483871,
+          "average_precision": 0.9411408032988089
+        },
+        "image_detection_only": {
+          "auroc": 0.5516129032258065,
+          "average_precision": 0.7663744188502373
+        },
+        "rgb_pixel": {
+          "auroc": 0.9879901477393686,
+          "average_precision": 0.1072365182032863
+        }
+      }
+    }
+  },
+  "training_loss": {
+    "selected_epoch": 3.304547,
+    "last_epoch": 20,
+    "last_epoch_mean": 2.588211
+  },
+  "artifacts": {
+    "selected_checkpoint": "mulsen_epoch_003.pth",
+    "selected_checkpoint_sha256": "c0b8ff4651bbbe57ce12f7d655e23c97238db26d8f8fcdbf015d3c5c05bf779c",
+    "selected_checkpoint_size_bytes": 130467503,
+    "checkpoint_binary_tracked": false,
+    "source_evaluation": "development_evaluation.json",
+    "source_evaluation_sha256": "7a2f66e9993fedb6f72c083e0ec8104468f68d4eacbdbd6b334aa38ce274b93c",
+    "source_evaluation_size_bytes": 1932828,
+    "source_config": "experiment_config.json",
+    "source_config_sha256": "ca0c22f6d8933b4c545e11d69a71e40b9fea14699cbbfcf1cda84c38968b8246",
+    "source_train_log_sha256": "35fe1cf7eedcb5e3b06357b7813b009e2b773f24d48c540a4742cf01ab1c8cfe"
+  }
+}

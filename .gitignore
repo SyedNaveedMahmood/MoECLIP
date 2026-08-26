@@ -1,0 +1,17 @@
+# datasets & artifacts (too large for git)
+data/
+ckpt/
+model/ViT-L-14-336px.pt
+paper/
+
+# python
+__pycache__/
+*.pyc
+
+# bulky transient logs
+download_log.txt
+train_visa_log.txt
+train_mvtec_log.txt
+ablation_noetf_log.txt
+ablation_nofofs_log.txt
+proceed-while-running*.log
