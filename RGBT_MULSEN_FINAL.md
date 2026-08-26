@@ -61,7 +61,7 @@ architecture was frozen before evaluating the five final unseen MulSen-AD
 categories. Development-selected final budgets are A = 9 epochs and D-v1.1 = 3
 epochs.
 
-## Routing and modality observations
+## Development routing and modality observations
 
 The learned layer scales at blocks 5/11/17/23 are 0.199965, 0.200566, 0.200504,
 and 0.200118. Effective expert counts remain 3.994–4.000. Patch context/base
@@ -78,9 +78,91 @@ it does not by itself prove that thermal evidence caused the image-metric gain.
 
 ## Final results
 
-Not yet run. This section will be populated only after the frozen source tag,
-fixed final thermal statistics, fixed 9/3-epoch refits, and one evaluation of
-each model on locked `D_u`.
+The freeze commit and annotated tag were pushed before final refitting or unseen
+evaluation. The final epoch budgets were fixed from development (A = 9,
+D-v1.1 = 3). Both models were then refit from scratch on all ten `D_s`
+categories and evaluated exactly once on the five locked `D_u` categories.
+
+| Model | Combined AUROC/AP | Detection AUROC/AP | RGB pixel AUROC/AP |
+|---|---:|---:|---:|
+| A-final | 0.531840 / 0.782527 | 0.672881 / 0.852295 | 0.846033 / 0.064449 |
+| D-v1.1-final | 0.385808 / 0.722930 | 0.501320 / 0.771992 | 0.920235 / 0.028958 |
+
+Observed: D-v1.1 reduces combined image AUROC/AP by 0.146032/0.059597 and
+detection-only AUROC/AP by 0.171561/0.080303. It raises macro RGB pixel AUROC by
+0.074202 but lowers RGB pixel AP by 0.035491. It therefore does not outperform
+the corrected RGB baseline overall. This is one seed and one category split;
+these differences are not estimates of variance or statistical significance.
+
+### Per-category final metrics
+
+| Category | A combined | D combined | A detection | D detection | A RGB pixel | D RGB pixel |
+|---|---:|---:|---:|---:|---:|---:|
+| cotton | 0.5769 / 0.8447 | 0.6564 / 0.8966 | 0.7000 / 0.8878 | 0.4077 / 0.7574 | 0.9211 / 0.2073 | 0.9153 / 0.0291 |
+| nut | 0.6172 / 0.8644 | 0.1069 / 0.5675 | 0.7034 / 0.9012 | 0.3414 / 0.7528 | 0.4445 / 0.0011 | 0.9303 / 0.0139 |
+| piggy | 0.4833 / 0.7223 | 0.3833 / 0.7605 | 0.6833 / 0.8717 | 0.5200 / 0.7826 | 0.9344 / 0.0377 | 0.8456 / 0.0174 |
+| solar_panel | 0.6590 / 0.9079 | 0.3051 / 0.7167 | 0.8231 / 0.9320 | 0.9103 / 0.9769 | 0.9480 / 0.0505 | 0.9320 / 0.0586 |
+| toothbrush | 0.3227 / 0.5733 | 0.4773 / 0.6733 | 0.4545 / 0.6688 | 0.3273 / 0.5903 | 0.9823 / 0.0257 | 0.9779 / 0.0259 |
+
+Each cell is AUROC/AP. D-v1.1 improves combined ranking on `cotton` and
+`toothbrush`, and detection ranking on `solar_panel`, but the large regressions
+on `nut` and `solar_panel` dominate macro image performance. Its macro pixel
+AUROC gain is driven mainly by `nut`; the very low pixel AP shows that this does
+not translate into precise anomaly localization.
+
+### Modality subgroup diagnostics
+
+The following post-hoc diagnostics compare each anomaly subgroup against the 50
+good images using the already-recorded scores. They were not used for tuning or
+model selection.
+
+| Subgroup | A combined AUROC/AP | D combined AUROC/AP | A detection AUROC/AP | D detection AUROC/AP |
+|---|---:|---:|---:|---:|
+| RGB-only (23) | 0.6878 / 0.5361 | 0.3035 / 0.2332 | 0.6009 / 0.4141 | 0.2365 / 0.2205 |
+| IR-only (61) | 0.3843 / 0.4991 | 0.5220 / 0.6682 | 0.5184 / 0.6839 | 0.6479 / 0.6685 |
+| RGB+IR (75) | 0.5341 / 0.6589 | 0.4035 / 0.5754 | 0.6027 / 0.7107 | 0.4808 / 0.5583 |
+
+Observed: D-v1.1 improves IR-only separation from good images but substantially
+harms RGB-only and RGB+IR separation. This supports the narrow statement that
+thermal-conditioned routing can expose some IR-only signal; it does not support
+a claim of better overall RGB-T ZSAD.
+
+### Final routing diagnostics
+
+| Block | alpha | Context/base | Top-1 changed | Effective experts | Attention entropy |
+|---:|---:|---:|---:|---:|---:|
+| 5 | 0.200058 | 0.0656 | 0.0417 | 3.9998 | 0.9446 |
+| 11 | 0.201592 | 2.6975 | 0.2648 | 3.9996 | 0.9469 |
+| 17 | 0.200895 | 1.2813 | 0.2974 | 3.9964 | 0.8472 |
+| 23 | 0.199956 | 0.0480 | 0.0308 | 3.9987 | 0.8335 |
+
+The learned alphas remain close to their 0.2 initialization. Context is weak at
+the first and last MoE layers but dominates the mean absolute base logits in the
+middle layers, changing about 26-30% of patch Top-1 choices there. Mean expert
+probabilities stay close to uniform, so the router is active without global
+expert collapse. Thermal attention remains broad: its effective support is
+about 940, 951, 565, and 547 of 1,369 thermal tokens. These facts establish that
+the mechanism operated; they do not establish that its routing decisions were
+beneficial.
+
+### Final provenance
+
+- Final thermal statistics: 885 normal `D_s` training images, 271,872,000
+  pixels, mean 0.6446795692, population standard deviation 0.3207445050,
+  SHA-256 `40d71cf4fdf0601052118c208498e400d18290c5a1885c514be9949ab221ee46`.
+- A-final epoch-9 checkpoint SHA-256:
+  `5155948632a3dd1d0f2843cedc95fef695c2ce3a16c1453b25b911e0dc944df1`.
+- D-v1.1-final epoch-3 checkpoint SHA-256:
+  `3c941903018a60d3a530988c122595997db8799f46ef0a6dc78ae7a8be09b192`.
+- Source evaluation JSON SHA-256: A
+  `421be1456f61b494009d09fc939d1090de83775e5101535828697698bccc992c`,
+  D-v1.1
+  `919ef401a358534139f892786a7694553aacc651dc39b2a5ce85a86a1102d0b0`.
+- Final verification passed 77 repository tests plus 3 alignment-inspector tests
+  (80/80 total). A bounded one-sample D-v1.1 CUDA smoke also passed with 12
+  `[1,1369,768]` maps, finite losses/gradients, and 6,747.31 MiB peak allocation.
+
+No post-`D_u` model tuning or evaluation rerun occurred.
 
 ## Limitations
 
@@ -104,4 +186,6 @@ multiple category folds remain future work and are outside the frozen experiment
 
 Compact configs, hashes, metrics, routing diagnostics, figures, and commands are
 under [`results/mulsen/development/`](results/mulsen/development/README.md).
+Frozen final configs, one-shot evaluations, summaries, routing diagnostics, and
+commands are under [`results/mulsen/final/`](results/mulsen/final/README.md).
 The detailed research log is [`RGBT_MULSEN_PLAN.md`](RGBT_MULSEN_PLAN.md).

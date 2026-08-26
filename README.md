@@ -83,8 +83,13 @@ bash scripts.sh
 MulSen-AD data is not redistributed. Follow the audited dataset/protocol notes
 and PowerShell commands in [`RGBT_MULSEN_PLAN.md`](RGBT_MULSEN_PLAN.md). Frozen
 development commands and portable configs are recorded in
-[`results/mulsen/development/`](results/mulsen/development/README.md). Final
-commands/results will be added only after the frozen-tag refits are run.
+[`results/mulsen/development/`](results/mulsen/development/README.md). The fixed
+final refits, one-shot unseen evaluations, portable configs, routing audit,
+hashes, and exact commands are recorded in
+[`results/mulsen/final/`](results/mulsen/final/README.md). D-v1.1 is an honest
+negative overall result: it improves macro RGB pixel AUROC and IR-only subgroup
+separation, but it does not outperform the corrected RGB baseline on the primary
+final image metrics or RGB pixel AP.
 
 ## Comparison with State-of-the-art methods
 <img src="./assets/main_result.png" width="1200" height="1000">

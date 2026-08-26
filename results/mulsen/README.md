@@ -7,8 +7,9 @@ excluded.
 - [`development/`](development/README.md) records the seed-111 A-corrected versus
   D-v1.1 development comparison that fixed the architecture and final epoch
   budgets.
-- `final/` will be created only after the frozen final refits and one-time unseen
-  evaluation are complete.
+- [`final/`](final/README.md) records the fixed 9/3-epoch refits and one-time
+  unseen evaluation, including portable score arrays, configs, checkpoint and
+  result hashes, routing diagnostics, thermal-stat provenance, and commands.
 
 The protocol and interpretation are documented in
 [`RGBT_MULSEN_PLAN.md`](../../RGBT_MULSEN_PLAN.md) and

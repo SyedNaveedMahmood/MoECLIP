@@ -735,9 +735,9 @@ predeclared D-v1.1 attribution boundary.
 
 ### Not results
 
-- Final unseen-category performance, multi-seed stability, segment-aware PAA
-  effects, and generalization claims remain unknown. The table above is a single
-  development seed and must not be described as variance or final ZSAD evidence.
+- Multi-seed stability, segment-aware PAA effects, and broader generalization
+  remain unknown. Development tables are a single seed and must not be
+  described as variance or final ZSAD evidence.
 
 ## DEVELOPMENT RESULTS — corrected frozen comparison
 
@@ -825,6 +825,68 @@ evaluation, or selection. Accordingly, the defensible statement is “no `D_u`
 performance feedback or fitting before freeze,” not that future `D_u` pixels
 were literally never inspected during dataset characterization.
 
+## FINAL RESULTS — frozen one-shot unseen evaluation
+
+### Facts
+
+- Freeze commit `62b1cee5d6a01ee224fad4a9e4b11b5eb9da2c10` and annotated tag
+  `mulsen-rgbt-extension-frozen-v1` were pushed before final refitting and before
+  any final unseen metric was computed.
+- Final thermal normalization used only 885 normal training images from the ten
+  `D_s` categories: mean 0.6446795691628819, population standard deviation
+  0.3207445049848289, 271,872,000 pixels, SHA-256
+  `40d71cf4fdf0601052118c208498e400d18290c5a1885c514be9949ab221ee46`.
+- A-final trained from scratch for the development-fixed 9 epochs; its epoch-9
+  mean loss was 3.038852 and checkpoint SHA-256 was
+  `5155948632a3dd1d0f2843cedc95fef695c2ce3a16c1453b25b911e0dc944df1`.
+- D-v1.1-final trained from scratch for the development-fixed 3 epochs; its
+  epoch-3 mean loss was 3.307834 and checkpoint SHA-256 was
+  `3c941903018a60d3a530988c122595997db8799f46ef0a6dc78ae7a8be09b192`.
+- Each fixed checkpoint was evaluated exactly once on `cotton`, `nut`, `piggy`,
+  `solar_panel`, and `toothbrush`. No post-`D_u` model, prompt, normalization,
+  score, threshold, epoch, or checkpoint change occurred.
+
+| Model | Combined AUROC | Combined AP | Detection AUROC | Detection AP | RGB pixel AUROC | RGB pixel AP |
+|---|---:|---:|---:|---:|---:|---:|
+| A-final | 0.531840 | 0.782527 | 0.672881 | 0.852295 | 0.846033 | 0.064449 |
+| D-v1.1-final | 0.385808 | 0.722930 | 0.501320 | 0.771992 | 0.920235 | 0.028958 |
+
+### Observed
+
+D-v1.1 does not outperform A-final overall. It improves macro RGB pixel AUROC
+by 0.074202, largely through `nut`, but reduces RGB pixel AP by 0.035491 and
+reduces both image-level metric pairs. Per-category numbers and exact one-shot
+score arrays are tracked under `results/mulsen/final/`.
+
+Post-hoc subgroup-versus-good diagnostics show a specific trade-off. D-v1.1
+improves IR-only combined AUROC from 0.3843 to 0.5220 and detection AUROC from
+0.5184 to 0.6479. It reduces RGB-only combined AUROC from 0.6878 to 0.3035 and
+RGB+IR combined AUROC from 0.5341 to 0.4035. These diagnostics were computed
+after the fixed evaluations and did not affect any model decision.
+
+Final D-v1.1 alphas at blocks 5/11/17/23 are 0.200058, 0.201592, 0.200895, and
+0.199956. Context/base absolute-logit ratios are 0.066, 2.698, 1.281, and 0.048,
+changing patch Top-1 routing for 4.2%, 26.5%, 29.7%, and 3.1% of tokens.
+Effective expert counts remain 3.996-4.000. Mean normalized thermal-attention
+entropy is 0.945, 0.947, 0.847, and 0.834. The mechanism is active and
+non-collapsed, but activation is not evidence of benefit.
+
+### Interpretation
+
+Thermal conditioning appears to recover some IR-only anomaly ordering while
+damaging the representation or calibration used for RGB-visible and jointly
+visible defects. Because final prediction stays in the RGB CLIP/text pathway,
+thermal evidence can change routing without providing a direct thermal anomaly
+score. The final results are consistent with that limitation, but do not prove
+it is the sole cause.
+
+### Hypotheses, not results
+
+A reliability mechanism, direct but leakage-safe multimodal image scoring, or
+learned registration might reduce harmful conditioning when thermal evidence is
+uninformative. These are future hypotheses and were not tested after `D_u` was
+opened.
+
 ## LIMITATIONS
 
 - Sequential RGB/IR acquisition is uncalibrated; cross-attention can learn
@@ -844,5 +906,5 @@ were literally never inspected during dataset characterization.
 Thermal reliability gating, thermal auxiliary supervision, segment-aware PAA,
 learned registration, improved multimodal image scoring, multi-seed evaluation,
 and multi-fold category splits remain implemented ideas or hypotheses. They are
-outside the frozen primary experiment and will not be run before the final
-A-corrected versus D-v1.1 comparison is complete.
+outside the frozen primary experiment and were not run after the final unseen
+results were opened.
