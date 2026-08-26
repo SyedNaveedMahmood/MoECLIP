@@ -64,6 +64,26 @@ def _portable_config(config: Mapping[str, Any], stage: str) -> Dict[str, Any]:
     return portable
 
 
+def _portable_evaluation(
+    report: Mapping[str, Any], stage: str
+) -> Dict[str, Any]:
+    """Replace only machine-specific paths in an evaluation report.
+
+    Unlike the compact summaries, portable evaluations retain the per-sample
+    score arrays so downstream analyses can be reproduced without a checkpoint.
+    """
+    portable = deepcopy(dict(report))
+    portable["experiment_config"] = _portable_config(
+        portable["experiment_config"], stage
+    )
+    for evaluation in portable["evaluations"]:
+        evaluation["checkpoint"] = Path(evaluation["checkpoint"]).name
+    selected = portable.get("selected_checkpoint")
+    if isinstance(selected, dict) and "checkpoint" in selected:
+        selected["checkpoint"] = Path(selected["checkpoint"]).name
+    return portable
+
+
 def _losses(path: Path) -> Dict[int, float]:
     losses: Dict[int, float] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -246,6 +266,11 @@ def main() -> None:
         _write_json(output_dir / f"{label}_summary.json", summary)
         _write_json(
             output_dir / "configs" / f"{label}_config.json", portable_config
+        )
+        report = _read_json(evaluation_path)
+        _write_json(
+            output_dir / f"{label}_evaluation.json",
+            _portable_evaluation(report, stage),
         )
     if len(stages) != 1:
         raise ValueError("one result package cannot mix protocol stages")

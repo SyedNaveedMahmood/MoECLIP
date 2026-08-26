@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from tools.package_mulsen_results import _portable_config, _without_values
+from tools.package_mulsen_results import (
+    _portable_config,
+    _portable_evaluation,
+    _without_values,
+)
 
 
 class PackageMulSenResultsTest(unittest.TestCase):
@@ -38,6 +42,46 @@ class PackageMulSenResultsTest(unittest.TestCase):
             }
         )
         self.assertEqual(compact, {"sample_count": 2, "nested": {"mean": 1.5}})
+
+    def test_portable_evaluation_retains_scores_and_removes_paths(self) -> None:
+        report = {
+            "experiment_config": {
+                "data_root": r"C:\private\MulSen_AD",
+                "thermal_normalization": {
+                    "file": r"C:\private\stats.json",
+                },
+            },
+            "evaluations": [
+                {
+                    "checkpoint": r"C:\private\mulsen_epoch_003.pth",
+                    "scores": [0.1, 0.2],
+                }
+            ],
+            "selected_checkpoint": {
+                "checkpoint": r"C:\private\mulsen_epoch_003.pth",
+                "epoch": 3,
+            },
+        }
+
+        portable = _portable_evaluation(report, "final")
+
+        self.assertEqual(
+            portable["experiment_config"]["data_root"],
+            "${MULSEN_DATA_ROOT}",
+        )
+        self.assertEqual(
+            portable["evaluations"][0]["checkpoint"],
+            "mulsen_epoch_003.pth",
+        )
+        self.assertEqual(portable["evaluations"][0]["scores"], [0.1, 0.2])
+        self.assertEqual(
+            portable["selected_checkpoint"]["checkpoint"],
+            "mulsen_epoch_003.pth",
+        )
+        self.assertEqual(
+            report["evaluations"][0]["checkpoint"],
+            r"C:\private\mulsen_epoch_003.pth",
+        )
 
 
 if __name__ == "__main__":
