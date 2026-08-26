@@ -30,6 +30,8 @@ Aggregate results across the valid benchmark datasets were:
 
 Pixel AUROC reproduced most closely. The reported numbers should be interpreted as a reproduction of the released execution path rather than a claim of exact paper-specification fidelity, because the released code contains several implementation/configuration differences from the paper.
 
+Two discrepancies are especially important when interpreting this reproduction. The paper's experimental setup specifies Adam with an initial learning rate of `5e-4`, whereas the released `train.py` defaults to `5e-5`. In addition, the released training script leaves the adapted model in evaluation mode during optimization; in the released MoE implementation, training-state-dependent auxiliary routing and ETF computations are therefore not exercised in the same way implied by the paper description. For this reason, the results above intentionally document the released execution path and should not be read as an exact reconstruction of the written paper specification.
+
 Raw reproduction logs are retained in the repository, including `eval_visa_results.txt`, `eval_mvtec_results.txt`, and `ablation_nofofs_results.txt`.
 
 ## RGB-T extension on MulSen-AD
